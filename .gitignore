@@ -1,0 +1,11 @@
+# Environments
+.venv/
+venv/
+__pycache__/
+.ipynb_checkpoints/
+
+# Large datasets (do not commit 50k rows to Git)
+data/*.csv
+
+# Saved binaries (optional, keep or exclude based on file size)
+# models/*.pkl
