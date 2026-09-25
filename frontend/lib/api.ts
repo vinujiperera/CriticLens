@@ -42,6 +42,24 @@ export type MovieDetail = MovieListItem & {
   reviews: MovieReview[];
 };
 
+export type CommunityReview = {
+  author: string;
+  text: string;
+  created_at: string | null;
+  sentiment: string;
+  confidence: number;
+  positive_pct: number;
+  negative_pct: number;
+  neutral_pct: number;
+  source: string;
+};
+
+export type CommunityReviewsResponse = {
+  reviews: CommunityReview[];
+  configured: boolean;
+  source: string;
+};
+
 export type SentimentTrendPoint = {
   date: string;
   avg_compound: number;
@@ -81,6 +99,16 @@ export async function fetchMovie(id: number): Promise<MovieDetail> {
 export async function fetchMovieTrends(id: number): Promise<SentimentTrendPoint[]> {
   const res = await fetch(`${API_BASE}/movies/${id}/sentiment/trends`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load trends");
+  return res.json();
+}
+
+export async function fetchCommunityReviews(movieId: number): Promise<CommunityReviewsResponse> {
+  const res = await fetch(`${API_BASE}/movies/${movieId}/community-reviews`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    return { reviews: [], configured: false, source: "tmdb" };
+  }
   return res.json();
 }
 

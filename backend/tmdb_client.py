@@ -95,6 +95,10 @@ def get_movie(tmdb_id: int) -> Dict[str, Any]:
     return _request(f"/movie/{tmdb_id}", {"append_to_response": "credits"})
 
 
+def get_movie_reviews(tmdb_id: int, page: int = 1) -> Dict[str, Any]:
+    return _request(f"/movie/{tmdb_id}/reviews", {"page": page})
+
+
 def extract_director(credits: Dict[str, Any]) -> str:
     for person in credits.get("crew", []):
         if person.get("job") == "Director":

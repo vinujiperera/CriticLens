@@ -669,6 +669,46 @@ def get_movie(movie_id: int, db: Session = Depends(get_db)):
     return payload
 
 
+@app.get("/movies/{movie_id}/community-reviews")
+def get_community_reviews(movie_id: int, db: Session = Depends(get_db)):
+    """TMDB user reviews, analyzed with CriticLens ML when local reviews are sparse."""
+    movie = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found.")
+
+    configured = tmdb_client.is_configured()
+    if not configured or not movie.tmdb_id:
+        return {"reviews": [], "configured": configured, "source": "tmdb"}
+
+    try:
+        data = tmdb_client.get_movie_reviews(int(movie.tmdb_id))
+    except TMDBError:
+        return {"reviews": [], "configured": True, "source": "tmdb"}
+
+    reviews_out = []
+    for item in (data.get("results") or [])[:8]:
+        text = (item.get("content") or "").strip()
+        if len(text) < 3:
+            continue
+        author_details = item.get("author_details") or {}
+        author = author_details.get("username") or item.get("author") or "TMDB user"
+        scores = run_sentiment_inference(text)
+        reviews_out.append(
+            {
+                "author": author,
+                "text": text,
+                "created_at": item.get("created_at"),
+                "sentiment": scores["sentiment"],
+                "confidence": scores["confidence"],
+                "positive_pct": scores["positive_pct"],
+                "negative_pct": scores["negative_pct"],
+                "neutral_pct": scores["neutral_pct"],
+                "source": "tmdb",
+            }
+        )
+    return {"reviews": reviews_out, "configured": True, "source": "tmdb"}
+
+
 @app.get("/movies/{movie_id}/sentiment/trends")
 def get_sentiment_trends(movie_id: int, db: Session = Depends(get_db)):
     movie = db.query(Movie).filter(Movie.id == movie_id).first()

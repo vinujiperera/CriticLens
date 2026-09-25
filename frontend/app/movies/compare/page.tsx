@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { BarChart3, Loader2 } from "lucide-react";
+import { BarChart3, Loader2, Search } from "lucide-react";
 import { compareMovies, fetchMovies, type MovieListItem, type MovieSentimentSummary } from "@/lib/api";
 import { SentimentBreakdown } from "../../components/SentimentBreakdown";
 
@@ -24,14 +25,31 @@ function CompareMoviesContent() {
       .filter((n) => Number.isFinite(n));
   }, [searchParams]);
 
+  const [query, setQuery] = useState("");
   const [catalog, setCatalog] = useState<MovieListItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<number[]>(initialIds.slice(0, 3));
   const [results, setResults] = useState<CompareRow[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchMovies().then(setCatalog).catch(() => setCatalog([]));
+  const loadCatalog = useCallback(async (search?: string) => {
+    setCatalogLoading(true);
+    try {
+      const data = await fetchMovies(search);
+      setCatalog(data);
+    } catch {
+      setCatalog([]);
+    } finally {
+      setCatalogLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      loadCatalog(query);
+    }, query.trim() ? 350 : 0);
+    return () => window.clearTimeout(timer);
+  }, [query, loadCatalog]);
 
   useEffect(() => {
     if (initialIds.length >= 2) {
@@ -75,30 +93,65 @@ function CompareMoviesContent() {
           Compare audience sentiment
         </h1>
         <p className="text-sm text-sunrise-burgundy/60 mt-1">
-          Pick 2–5 movies to compare positive, negative, and neutral audience percentages side by side.
+          Search your catalog (including titles imported from TMDB), pick 2–5 movies, then compare
+          positive, negative, and neutral percentages side by side.
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-        {catalog.map((movie) => {
-          const checked = selected.includes(movie.id);
-          return (
-            <button
-              key={movie.id}
-              type="button"
-              onClick={() => toggle(movie.id)}
-              className={`text-left rounded-xl border p-3 transition ${
-                checked
-                  ? "border-sunrise-coral bg-sunrise-coral/10"
-                  : "border-sunrise-burgundy/12 bg-sunrise-surface hover:border-sunrise-coral/30"
-              }`}
-            >
-              <p className="font-semibold text-sm">{movie.title}</p>
-              <p className="text-xs text-sunrise-burgundy/50">{movie.year}</p>
-            </button>
-          );
-        })}
+      <div className="relative max-w-xl mb-6">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sunrise-burgundy/40" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search movies to compare…"
+          className="w-full pl-10 pr-4 py-3 rounded-xl border border-sunrise-burgundy/15 bg-sunrise-surface text-sm focus:outline-none focus:ring-2 focus:ring-sunrise-coral/40"
+        />
       </div>
+
+      {catalogLoading ? (
+        <div className="flex items-center gap-2 text-sm text-sunrise-burgundy/50 mb-6">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading titles…
+        </div>
+      ) : catalog.length === 0 ? (
+        <p className="text-sm text-sunrise-burgundy/50 mb-6">
+          No matches. Try another search or browse{" "}
+          <Link href="/movies" className="text-sunrise-coral hover:underline">
+            Movies
+          </Link>{" "}
+          to import titles from TMDB first.
+        </p>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+          {catalog.map((movie) => {
+            const checked = selected.includes(movie.id);
+            return (
+              <div
+                key={movie.id}
+                className={`rounded-xl border p-3 transition ${
+                  checked
+                    ? "border-sunrise-coral bg-sunrise-coral/10"
+                    : "border-sunrise-burgundy/12 bg-sunrise-surface hover:border-sunrise-coral/30"
+                }`}
+              >
+                <button type="button" onClick={() => toggle(movie.id)} className="text-left w-full">
+                  <p className="font-semibold text-sm">{movie.title}</p>
+                  <p className="text-xs text-sunrise-burgundy/50">
+                    {movie.year} · {movie.sentiment.review_count} CriticLens reviews
+                  </p>
+                </button>
+                <Link
+                  href={`/movies/${movie.id}`}
+                  className="mt-2 inline-block text-xs text-sunrise-coral hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  View reviews →
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <button
         type="button"
@@ -127,6 +180,12 @@ function CompareMoviesContent() {
                 negative={row.sentiment.negative_pct}
                 neutral={row.sentiment.neutral_pct}
               />
+              <Link
+                href={`/movies/${row.id}`}
+                className="mt-4 inline-block text-sm text-sunrise-coral hover:underline"
+              >
+                Open movie page →
+              </Link>
             </div>
           ))}
         </div>

@@ -91,31 +91,24 @@ const SAMPLE_REVIEWS = [
   },
 ];
 
-function PillarHeader({
-  pillar,
+function SectionHeader({
   title,
   hint,
   icon: Icon,
 }: {
-  pillar: number;
   title: string;
   hint?: string;
   icon: ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-sunrise-burgundy/10">
-      <div className="flex items-start gap-3 min-w-0">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sunrise-coral/15 text-[11px] font-bold text-sunrise-coral border border-sunrise-coral/25">
-          P{pillar}
+    <div className="mb-4 pb-3 border-b border-sunrise-burgundy/10">
+      <h3 className="text-sm font-semibold text-sunrise-burgundy flex items-center gap-2">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sunrise-coral/15 border border-sunrise-coral/25">
+          <Icon className="w-4 h-4 text-sunrise-coral" />
         </span>
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-sunrise-burgundy flex items-center gap-2">
-            <Icon className="w-4 h-4 text-sunrise-coral shrink-0" />
-            <span className="leading-snug">{title}</span>
-          </h3>
-          {hint && <p className="text-[11px] text-sunrise-burgundy/55 mt-0.5">{hint}</p>}
-        </div>
-      </div>
+        <span className="leading-snug">{title}</span>
+      </h3>
+      {hint && <p className="text-xs text-sunrise-burgundy/55 mt-2 pl-10">{hint}</p>}
     </div>
   );
 }
@@ -241,13 +234,11 @@ export default function Home() {
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-sunrise-coral text-white shadow-md">
               <Sparkles className="w-4 h-4" />
             </span>
-            Analytics Dashboard
-            <span className="text-[10px] tracking-widest uppercase bg-sunrise-peach border border-sunrise-coral/30 text-sunrise-burgundy px-2 py-0.5 rounded-full font-mono">
-              v2.0 XAI
-            </span>
+            Review analyzer
           </h1>
-          <p className="text-xs text-sunrise-burgundy/60 mt-1 ml-11">
-            Five-pillar critique intelligence: aspects, trajectory, tokens, lexical stats, and live history
+          <p className="text-sm text-sunrise-burgundy/60 mt-1 ml-11 max-w-xl">
+            Paste any critique to see overall sentiment, topic scores, how tone shifts line by line, which
+            words mattered most, reading stats, and your recent analyses.
           </p>
         </div>
 
@@ -275,7 +266,7 @@ export default function Home() {
             className="scroll-mt-24 bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg space-y-3"
           >
             <label className="block text-xs uppercase tracking-wider font-semibold text-sunrise-burgundy/70">
-              Source critique / passage
+              Your review or critique
             </label>
             <textarea
               rows={4}
@@ -304,17 +295,16 @@ export default function Home() {
                 onClick={() => handleAnalyze()}
                 className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-sunrise-coral hover:bg-[#e85f5b] disabled:opacity-40 text-white font-medium text-sm transition-all shadow-md"
               >
-                {loading ? "Analyzing dimensions…" : "Extract insights"}
+                {loading ? "Analyzing…" : "Analyze review"}
               </button>
             </div>
           </div>
 
           {result && (
             <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
-              <PillarHeader
-                pillar={3}
-                title="Token-level explainability (XAI) text inspector"
-                hint="Hover any token for a live badge; click to pin the coefficient audit"
+              <SectionHeader
+                title="Which words influenced the score?"
+                hint="Hover a word for a quick explanation. Click to keep it selected below."
                 icon={Sliders}
               />
 
@@ -392,10 +382,9 @@ export default function Home() {
             id="history"
             className="scroll-mt-24 bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg"
           >
-            <PillarHeader
-              pillar={5}
-              title="Interactive history log"
-              hint="SQLite-backed query log · single-click DELETE · auto-refreshes every 15s"
+            <SectionHeader
+              title="Your recent analyses"
+              hint="Click a row to load it again. Use Delete to remove an entry."
               icon={History}
             />
 
@@ -492,17 +481,16 @@ export default function Home() {
               </div>
 
               <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
-                <PillarHeader
-                  pillar={4}
-                  title="Lexical & readability stat cards"
-                  hint="Flesch reading ease, contrast markers, lexical diversity"
+                <SectionHeader
+                  title="How readable is this review?"
+                  hint="Ease of reading, “but/however” flip phrases, and vocabulary variety."
                   icon={BookOpen}
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/25 p-4 text-center">
                     <BookOpen className="w-4 h-4 mx-auto text-sunrise-coral mb-2" />
                     <span className="text-[10px] uppercase tracking-wide text-sunrise-burgundy/55 block">
-                      Flesch score
+                      Reading ease
                     </span>
                     <span className="text-xl font-bold text-sunrise-burgundy font-mono mt-1 block">
                       {result.analytics.lexical.reading_ease}
@@ -512,7 +500,7 @@ export default function Home() {
                   <div className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/25 p-4 text-center">
                     <Split className="w-4 h-4 mx-auto text-sunrise-coral-muted mb-2" />
                     <span className="text-[10px] uppercase tracking-wide text-sunrise-burgundy/55 block">
-                      Contrast markers
+                      Tone shifts
                     </span>
                     <span className="text-xl font-bold text-sunrise-burgundy font-mono mt-1 block">
                       {result.analytics.lexical.contrast_marker_count}
@@ -522,7 +510,7 @@ export default function Home() {
                   <div className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/25 p-4 text-center">
                     <Layers className="w-4 h-4 mx-auto text-sunrise-coral mb-2" />
                     <span className="text-[10px] uppercase tracking-wide text-sunrise-burgundy/55 block">
-                      Diversity
+                      Word variety
                     </span>
                     <span className="text-xl font-bold text-sunrise-burgundy font-mono mt-1 block">
                       {result.analytics.lexical.lexical_diversity_pct}%
@@ -533,10 +521,9 @@ export default function Home() {
               </div>
 
               <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
-                <PillarHeader
-                  pillar={1}
-                  title="Aspect-based polarity breakdown"
-                  hint="Horizontal dynamic meters per critique dimension (0–100% polarity)"
+                <SectionHeader
+                  title="Scores by topic"
+                  hint="Acting, story, visuals, and pacing—when your review mentions them."
                   icon={BarChart3}
                 />
                 <div className="flex flex-col gap-4">
@@ -575,15 +562,14 @@ export default function Home() {
               </div>
 
               <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
-                <PillarHeader
-                  pillar={2}
-                  title="Narrative sentiment trajectory"
-                  hint="Sentence-level compound scores · Recharts line series"
+                <SectionHeader
+                  title="How mood changes across the review"
+                  hint="Each sentence’s tone from start to finish (great for mixed reviews)."
                   icon={LineChartIcon}
                 />
                 {result.analytics.trajectory.length === 0 ? (
                   <p className="text-xs text-sunrise-burgundy/45 text-center py-8">
-                    Add multiple sentences to plot a trajectory.
+                    Use a review with several sentences to see the line chart.
                   </p>
                 ) : (
                   <div className="h-52 w-full rounded-xl bg-sunrise-peach/20 border border-sunrise-burgundy/10 p-2 pt-3">
@@ -630,8 +616,8 @@ export default function Home() {
               <Sparkles className="w-10 h-10 mb-3 text-sunrise-coral/40" />
               <p className="text-sm font-medium text-sunrise-burgundy/80">Ready to analyze</p>
               <p className="text-xs max-w-sm mt-2 leading-relaxed">
-                Run a critique to unlock Pillars 1–4: aspect meters, Recharts trajectory, XAI token inspector,
-                and lexical stat cards—plus live history with DELETE.
+                Paste a review and click Analyze to see topic scores, the mood chart, important words,
+                reading stats, and saved history here.
               </p>
             </div>
           )}
