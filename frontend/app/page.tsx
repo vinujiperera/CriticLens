@@ -1,28 +1,72 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, type ComponentType } from "react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ReferenceLine,
+} from "recharts";
 import {
   Sparkles,
+  TrendingDown,
+  TrendingUp,
+  BookOpen,
+  Split,
+  Layers,
+  Sliders,
+  RotateCcw,
   History,
-  ThumbsUp,
-  ThumbsDown,
-  Loader2,
-  X,
-  Copy,
-  Check,
-  RefreshCw,
-  CircleAlert,
+  LineChart as LineChartIcon,
+  BarChart3,
 } from "lucide-react";
-import { BrandLogo } from "./components/BrandLogo";
+
+interface AspectScores {
+  [key: string]: number | null;
+}
+
+interface TrajectoryPoint {
+  sentence_index: number;
+  snippet: string;
+  compound: number;
+  pos: number;
+  neg: number;
+  neu: number;
+}
+
+interface TokenImpact {
+  word: string;
+  weight: number;
+  influence: "Positive" | "Negative" | "Neutral";
+}
+
+interface LexicalMetrics {
+  word_count: number;
+  sentence_count: number;
+  lexical_diversity_pct: number;
+  reading_ease: number;
+  contrast_marker_count: number;
+  estimated_read_time_sec: number;
+}
 
 interface AnalysisResult {
-  id?: number;
+  id: number;
   text: string;
   sentiment: "Positive" | "Negative";
   confidence: number;
   breakdown: {
     positive: number;
     negative: number;
+  };
+  analytics: {
+    aspects: AspectScores;
+    trajectory: TrajectoryPoint[];
+    token_impacts: TokenImpact[];
+    lexical: LexicalMetrics;
   };
 }
 
@@ -31,412 +75,561 @@ interface HistoryItem {
   text: string;
   sentiment: string;
   confidence: number;
+  timestamp?: string;
 }
 
-const MIN_REVIEW_LENGTH = 3;
 const API_BASE = "http://127.0.0.1:8000";
 
+const SAMPLE_REVIEWS = [
+  {
+    label: "Mixed Critique",
+    text: "The cinematography and visuals were stunning with vivid lighting. However, the plot was terribly slow and the acting felt lifeless.",
+  },
+  {
+    label: "Masterpiece",
+    text: "An absolute tour de force! The script was brilliantly written, pacing was relentless, and the lead actor gave a career-defining performance.",
+  },
+];
+
+function PillarHeader({
+  pillar,
+  title,
+  hint,
+  icon: Icon,
+}: {
+  pillar: number;
+  title: string;
+  hint?: string;
+  icon: ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-sunrise-burgundy/10">
+      <div className="flex items-start gap-3 min-w-0">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sunrise-coral/15 text-[11px] font-bold text-sunrise-coral border border-sunrise-coral/25">
+          P{pillar}
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-sunrise-burgundy flex items-center gap-2">
+            <Icon className="w-4 h-4 text-sunrise-coral shrink-0" />
+            <span className="leading-snug">{title}</span>
+          </h3>
+          {hint && <p className="text-[11px] text-sunrise-burgundy/55 mt-0.5">{hint}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrajectoryTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: TrajectoryPoint }[];
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0].payload;
+  return (
+    <div className="max-w-[220px] rounded-xl border border-sunrise-coral/40 bg-sunrise-surface px-3 py-2 shadow-lg text-[11px] text-sunrise-burgundy">
+      <p className="font-semibold text-sunrise-coral mb-1">Sentence {point.sentence_index}</p>
+      <p className="leading-relaxed mb-2 opacity-90">&ldquo;{point.snippet}&rdquo;</p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px]">
+        <span>Compound: {point.compound}</span>
+        <span>Pos: {point.pos}%</span>
+        <span>Neg: {point.neg}%</span>
+        <span>Neu: {point.neu}%</span>
+      </div>
+    </div>
+  );
+}
+
+function tokenStyles(token: TokenImpact) {
+  if (token.weight > 0.15) {
+    return "bg-sunrise-coral/15 text-sunrise-coral border-sunrise-coral/35";
+  }
+  if (token.weight < -0.15) {
+    return "bg-sunrise-coral-muted/20 text-[#c47275] border-sunrise-coral-muted/40";
+  }
+  return "text-sunrise-burgundy/75 border-sunrise-burgundy/10 hover:bg-white/50";
+}
+
+function formatHistoryTime(ts?: string) {
+  if (!ts) return null;
+  try {
+    return new Date(ts).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function Home() {
-  const [review, setReview] = useState("");
+  const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const resultsRef = useRef<HTMLDivElement>(null);
-
-  const trimmedLength = review.trim().length;
-  const canAnalyze = trimmedLength >= MIN_REVIEW_LENGTH && !loading;
+  const [hoverToken, setHoverToken] = useState<TokenImpact | null>(null);
+  const [pinnedToken, setPinnedToken] = useState<TokenImpact | null>(null);
 
   const fetchHistory = useCallback(async () => {
-    setHistoryLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/history?limit=5`);
+      const res = await fetch(`${API_BASE}/history`);
       if (res.ok) {
         const data = await res.json();
         setHistory(data);
-        setBackendOnline(true);
-      } else {
-        setBackendOnline(false);
       }
     } catch {
-      setBackendOnline(false);
-    } finally {
-      setHistoryLoading(false);
+      // Backend offline
     }
   }, []);
 
   useEffect(() => {
     fetchHistory();
+    const interval = window.setInterval(fetchHistory, 15000);
+    return () => window.clearInterval(interval);
   }, [fetchHistory]);
 
-  const handleAnalyze = async () => {
-    if (!canAnalyze) return;
+  const handleAnalyze = async (textToAnalyze?: string) => {
+    const targetText = (textToAnalyze ?? inputText).trim();
+    if (!targetText) return;
+
     setLoading(true);
-    setError(null);
+    setHoverToken(null);
+    setPinnedToken(null);
 
     try {
       const res = await fetch(`${API_BASE}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: review }),
+        body: JSON.stringify({ text: targetText }),
       });
 
-      if (!res.ok) {
-        const detail =
-          res.status === 422
-            ? "Review is too short. Enter at least 3 characters."
-            : "Failed to analyze review.";
-        throw new Error(detail);
+      if (res.ok) {
+        const data: AnalysisResult = await res.json();
+        setResult(data);
+        fetchHistory();
       }
-
-      const data = await res.json();
-      setResult(data);
-      setBackendOnline(true);
-      fetchHistory();
-      requestAnimationFrame(() => {
-        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
     } catch (err) {
-      setBackendOnline(false);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Error contacting ML backend. Ensure FastAPI is running on port 8000."
-      );
+      console.error("Inference request failed", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      handleAnalyze();
-    }
-  };
-
-  const clearInput = () => {
-    setReview("");
-    setError(null);
-  };
-
-  const loadFromHistory = (text: string) => {
-    setReview(text);
-    setError(null);
-  };
-
-  const copyResultSummary = async () => {
-    if (!result) return;
-    const summary = `${result.sentiment} (${result.confidence}% confidence) — Positive ${result.breakdown.positive}%, Negative ${result.breakdown.negative}%`;
+  const handleDeleteHistory = async (id: number) => {
     try {
-      await navigator.clipboard.writeText(summary);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Could not copy to clipboard.");
+      const res = await fetch(`${API_BASE}/history/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setHistory((prev) => prev.filter((item) => item.id !== id));
+      }
+    } catch (err) {
+      console.error("Delete failed", err);
     }
   };
 
-  const sampleReviews = [
-    {
-      label: "Positive",
-      text: "A visual masterpiece with remarkable character depth and brilliant sound design.",
-    },
-    {
-      label: "Negative",
-      text: "The dialogue was wooden, the pacing was agonizing, and the ending felt entirely unearned.",
-    },
-  ] as const;
+  const activeToken = pinnedToken ?? hoverToken;
 
   return (
-    <main className="flex-1 py-10 sm:py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto space-y-8">
-        {/* Hero */}
-        <div className="relative overflow-hidden text-center space-y-5 rounded-3xl bg-sunrise-burgundy px-6 py-10 sm:px-10 shadow-xl shadow-sunrise-burgundy/25 ring-1 ring-white/10">
-          <div
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(242,108,104,0.35),transparent_55%)]"
-            aria-hidden
-          />
-          <div className="relative flex justify-center">
-            <BrandLogo href={null} variant="hero" priority />
-          </div>
-          <div className="relative flex flex-wrap items-center justify-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/10 text-sunrise-cream border border-white/15">
-              <Sparkles className="w-3.5 h-3.5 text-sunrise-coral" /> Scikit-Learn + TF-IDF Pipeline
+    <main className="flex-1 px-4 py-8 md:px-8 md:py-10">
+      <div className="max-w-6xl mx-auto mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-sunrise-burgundy/15 pb-6">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-sunrise-burgundy flex items-center gap-2">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-sunrise-coral text-white shadow-md">
+              <Sparkles className="w-4 h-4" />
             </span>
-            {backendOnline !== null && (
-              <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
-                  backendOnline
-                    ? "bg-sunrise-coral/20 text-sunrise-cream border-sunrise-coral/40"
-                    : "bg-sunrise-coral-muted/25 text-sunrise-peach border-sunrise-coral-muted/50"
-                }`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${backendOnline ? "bg-sunrise-coral" : "bg-sunrise-coral-muted"}`}
-                  aria-hidden
-                />
-                {backendOnline ? "Backend connected" : "Backend offline"}
-              </span>
-            )}
-          </div>
-          <p className="relative text-sunrise-cream/90 max-w-xl mx-auto text-sm sm:text-base leading-relaxed">
-            Instant sentiment breakdown and confidence gauge for film, novel, and media critique.
+            Analytics Dashboard
+            <span className="text-[10px] tracking-widest uppercase bg-sunrise-peach border border-sunrise-coral/30 text-sunrise-burgundy px-2 py-0.5 rounded-full font-mono">
+              v2.0 XAI
+            </span>
+          </h1>
+          <p className="text-xs text-sunrise-burgundy/60 mt-1 ml-11">
+            Five-pillar critique intelligence: aspects, trajectory, tokens, lexical stats, and live history
           </p>
         </div>
 
-        {/* How it works */}
-        <section
-          id="how-it-works"
-          className="scroll-mt-24 grid sm:grid-cols-3 gap-4"
-          aria-labelledby="how-it-works-heading"
-        >
-          <h2 id="how-it-works-heading" className="sr-only">
-            How it works
-          </h2>
-          {[
-            { step: "1", title: "Paste your review", desc: "Write or paste a critique—films, books, or any media." },
-            { step: "2", title: "Run analysis", desc: "Our TF-IDF model scores positive vs. negative tone." },
-            { step: "3", title: "Read the breakdown", desc: "See confidence, percentages, and saved history." },
-          ].map((item) => (
-            <div
-              key={item.step}
-              className="rounded-2xl border border-sunrise-burgundy/10 bg-sunrise-surface/90 p-5 shadow-md shadow-sunrise-burgundy/5"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-sunrise-coral/20 text-sm font-bold text-sunrise-burgundy">
-                {item.step}
-              </span>
-              <h3 className="mt-3 font-semibold text-sunrise-burgundy">{item.title}</h3>
-              <p className="mt-1 text-sm text-sunrise-burgundy/65 leading-relaxed">{item.desc}</p>
-            </div>
-          ))}
-        </section>
-
-        {/* Input Card */}
-        <div
-          id="analyze"
-          className="scroll-mt-24 bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-6 shadow-lg shadow-sunrise-burgundy/8 space-y-4"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <label htmlFor="review-input" className="text-sm font-medium text-sunrise-burgundy">
-              Your critique
-            </label>
-            <span
-              className={`text-xs tabular-nums ${
-                trimmedLength > 0 && trimmedLength < MIN_REVIEW_LENGTH
-                  ? "text-sunrise-coral-muted"
-                  : "text-sunrise-burgundy/55"
-              }`}
-            >
-              {trimmedLength} characters
-              {trimmedLength > 0 && trimmedLength < MIN_REVIEW_LENGTH && ` (min ${MIN_REVIEW_LENGTH})`}
-            </span>
-          </div>
-
-          <div className="relative">
-            <textarea
-              id="review-input"
-              className="w-full h-36 sm:h-32 bg-sunrise-peach/40 border border-sunrise-burgundy/20 rounded-xl p-4 pr-10 text-sunrise-burgundy placeholder-sunrise-burgundy/45 focus:outline-none focus:ring-2 focus:ring-sunrise-coral transition resize-y text-sm sm:text-base disabled:opacity-60"
-              placeholder="Paste or write a critique here..."
-              value={review}
-              onChange={(e) => {
-                setReview(e.target.value);
-                if (error) setError(null);
+        <div className="flex flex-wrap items-center gap-2">
+          {SAMPLE_REVIEWS.map((sample) => (
+            <button
+              key={sample.label}
+              type="button"
+              onClick={() => {
+                setInputText(sample.text);
+                handleAnalyze(sample.text);
               }}
-              onKeyDown={handleKeyDown}
-              disabled={loading}
-              aria-describedby="review-hint"
+              className="text-xs px-3 py-1.5 rounded-lg border border-sunrise-burgundy/15 bg-sunrise-surface hover:border-sunrise-coral/50 text-sunrise-burgundy transition-all"
+            >
+              Load {sample.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-7 flex flex-col gap-6">
+          <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg space-y-3">
+            <label className="block text-xs uppercase tracking-wider font-semibold text-sunrise-burgundy/70">
+              Source critique / passage
+            </label>
+            <textarea
+              rows={4}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Paste a review, critique blurb, or narrative passage..."
+              className="w-full bg-sunrise-peach/30 border border-sunrise-burgundy/15 focus:border-sunrise-coral focus:ring-2 focus:ring-sunrise-coral/30 rounded-xl p-3.5 text-sm text-sunrise-burgundy placeholder-sunrise-burgundy/40 outline-none transition-all resize-none"
             />
-            {review.length > 0 && (
+
+            <div className="flex items-center justify-between">
               <button
                 type="button"
-                onClick={clearInput}
-                disabled={loading}
-                className="absolute top-3 right-3 p-1 rounded-md text-sunrise-burgundy/50 hover:text-sunrise-burgundy hover:bg-sunrise-peach/80 transition disabled:opacity-40"
-                aria-label="Clear text"
+                onClick={() => {
+                  setInputText("");
+                  setResult(null);
+                  setPinnedToken(null);
+                }}
+                className="flex items-center gap-1.5 text-xs text-sunrise-burgundy/55 hover:text-sunrise-burgundy transition-colors"
               >
-                <X className="w-4 h-4" />
+                <RotateCcw className="w-3.5 h-3.5" /> Clear
               </button>
-            )}
+
+              <button
+                type="button"
+                disabled={loading || !inputText.trim()}
+                onClick={() => handleAnalyze()}
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-sunrise-coral hover:bg-[#e85f5b] disabled:opacity-40 text-white font-medium text-sm transition-all shadow-md"
+              >
+                {loading ? "Analyzing dimensions…" : "Extract insights"}
+              </button>
+            </div>
           </div>
 
-          <p id="review-hint" className="text-xs text-sunrise-burgundy/55">
-            Tip: Press <kbd className="px-1.5 py-0.5 rounded bg-sunrise-peach/60 border border-sunrise-burgundy/15 font-mono text-[10px]">Ctrl</kbd>
-            {" + "}
-            <kbd className="px-1.5 py-0.5 rounded bg-sunrise-peach/60 border border-sunrise-burgundy/15 font-mono text-[10px]">Enter</kbd>
-            {" "}to analyze quickly.
-          </p>
+          {result && (
+            <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
+              <PillarHeader
+                pillar={3}
+                title="Token-level explainability (XAI) text inspector"
+                hint="Hover any token for a live badge; click to pin the coefficient audit"
+                icon={Sliders}
+              />
 
-          {error && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 text-sm text-sunrise-burgundy bg-sunrise-coral-muted/20 border border-sunrise-coral-muted/40 rounded-xl px-3 py-2.5"
-            >
-              <CircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <div className="relative p-4 bg-sunrise-peach/25 rounded-xl border border-sunrise-burgundy/10 max-h-64 overflow-y-auto text-sm leading-loose text-sunrise-burgundy">
+                {result.analytics.token_impacts.map((token, idx) => (
+                  <span key={`${token.word}-${idx}`} className="relative inline">
+                    <button
+                      type="button"
+                      className={`relative mx-0.5 px-1.5 py-0.5 rounded-md border text-xs transition-all ${tokenStyles(token)} ${
+                        activeToken?.word === token.word && activeToken.weight === token.weight
+                          ? "ring-2 ring-sunrise-coral/50"
+                          : ""
+                      }`}
+                      onMouseEnter={() => setHoverToken(token)}
+                      onMouseLeave={() => setHoverToken(null)}
+                      onClick={() => setPinnedToken((prev) => (prev?.word === token.word ? null : token))}
+                    >
+                      {token.word}
+                      {hoverToken?.word === token.word &&
+                        hoverToken.weight === token.weight &&
+                        !pinnedToken && (
+                          <span
+                            className="pointer-events-none absolute z-20 left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] whitespace-nowrap rounded-lg bg-sunrise-burgundy text-sunrise-cream px-2.5 py-1.5 text-[10px] font-medium shadow-lg"
+                            role="tooltip"
+                          >
+                            <span className="text-sunrise-coral">{token.influence}</span>
+                            <span className="mx-1.5 opacity-40">|</span>
+                            weight{" "}
+                            <span className="font-mono">
+                              {token.weight > 0 ? `+${token.weight}` : token.weight}
+                            </span>
+                          </span>
+                        )}
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="mt-3.5 min-h-[42px] flex flex-wrap items-center justify-between gap-2 text-xs px-3.5 py-2.5 rounded-lg bg-sunrise-peach/30 border border-sunrise-burgundy/10">
+                {activeToken ? (
+                  <>
+                    <span className="text-sunrise-burgundy">
+                      Auditing: <strong>&ldquo;{activeToken.word}&rdquo;</strong>
+                      {pinnedToken && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-sunrise-coral">
+                          pinned
+                        </span>
+                      )}
+                    </span>
+                    <span className="font-mono text-sunrise-burgundy/80">
+                      {activeToken.influence} ·{" "}
+                      <span
+                        className={
+                          activeToken.weight > 0
+                            ? "text-sunrise-coral"
+                            : activeToken.weight < 0
+                              ? "text-sunrise-coral-muted"
+                              : ""
+                        }
+                      >
+                        {activeToken.weight > 0 ? `+${activeToken.weight}` : activeToken.weight}
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sunrise-burgundy/45 italic">
+                    Hover tokens for live badges, or click to pin an audit row
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-sunrise-burgundy/55">Try sample:</span>
-              {sampleReviews.map((sample) => (
-                <button
-                  key={sample.label}
-                  type="button"
-                  onClick={() => {
-                    setReview(sample.text);
-                    setError(null);
-                  }}
-                  disabled={loading}
-                  className="text-xs text-sunrise-burgundy hover:text-sunrise-coral bg-sunrise-peach/60 px-2.5 py-1 rounded-md border border-sunrise-burgundy/15 transition disabled:opacity-50"
-                >
-                  {sample.label}
-                </button>
-              ))}
-            </div>
+          <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
+            <PillarHeader
+              pillar={5}
+              title="Interactive history log"
+              hint="SQLite-backed query log · single-click DELETE · auto-refreshes every 15s"
+              icon={History}
+            />
 
-            <button
-              type="button"
-              onClick={handleAnalyze}
-              disabled={!canAnalyze}
-              className="inline-flex items-center justify-center gap-2 bg-sunrise-coral hover:bg-[#e85f5b] disabled:bg-sunrise-coral/35 text-white px-5 py-2.5 rounded-xl font-semibold text-sm transition shadow-lg shadow-sunrise-coral/30 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-                  Analyzing…
-                </>
-              ) : (
-                "Analyze Review"
-              )}
-            </button>
+            {history.length === 0 ? (
+              <p className="text-xs text-sunrise-burgundy/45 py-4 text-center">No stored evaluations yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1">
+                {history.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 p-3 rounded-xl bg-sunrise-peach/30 border border-sunrise-burgundy/10 hover:border-sunrise-coral/35 transition-colors"
+                  >
+                    <button
+                      type="button"
+                      className="flex-1 min-w-0 text-left"
+                      onClick={() => setInputText(item.text)}
+                      title="Load into editor"
+                    >
+                      <p className="text-xs text-sunrise-burgundy line-clamp-2">{item.text}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <span
+                          className={`text-[10px] font-semibold ${
+                            item.sentiment === "Positive" ? "text-sunrise-coral" : "text-sunrise-coral-muted"
+                          }`}
+                        >
+                          {item.sentiment} ({item.confidence}%)
+                        </span>
+                        {formatHistoryTime(item.timestamp) && (
+                          <span className="text-[10px] text-sunrise-burgundy/45 font-mono">
+                            {formatHistoryTime(item.timestamp)}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteHistory(item.id)}
+                      className="shrink-0 px-2.5 py-1.5 rounded-lg border border-sunrise-coral-muted/50 text-[10px] font-bold uppercase tracking-wide text-sunrise-coral-muted hover:bg-sunrise-coral-muted/15 hover:text-[#c47275] transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Inference Results Card */}
-        {result && (
-          <div
-            ref={resultsRef}
-            className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-6 shadow-lg shadow-sunrise-burgundy/8 space-y-5 animate-in fade-in duration-300"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                {result.sentiment === "Positive" ? (
-                  <span className="p-2.5 bg-sunrise-coral/15 text-sunrise-coral rounded-xl border border-sunrise-coral/35 shrink-0">
-                    <ThumbsUp className="w-6 h-6" />
-                  </span>
-                ) : (
-                  <span className="p-2.5 bg-sunrise-coral-muted/20 text-[#c47275] rounded-xl border border-sunrise-coral-muted/45 shrink-0">
-                    <ThumbsDown className="w-6 h-6" />
-                  </span>
-                )}
-                <div className="min-w-0">
-                  <h3 className="text-lg font-bold text-sunrise-burgundy leading-tight">
-                    {result.sentiment} Sentiment
-                  </h3>
-                  <p className="text-xs text-sunrise-burgundy/60">Model Confidence: {result.confidence}%</p>
+        <div className="lg:col-span-5 flex flex-col gap-6">
+          {result ? (
+            <>
+              <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider text-sunrise-burgundy/55">
+                      Primary classification
+                    </span>
+                    <h2 className="text-2xl font-black text-sunrise-burgundy flex items-center gap-2 mt-0.5">
+                      {result.sentiment === "Positive" ? (
+                        <>
+                          <TrendingUp className="w-6 h-6 text-sunrise-coral" />
+                          <span className="text-sunrise-coral">Positive</span>
+                        </>
+                      ) : (
+                        <>
+                          <TrendingDown className="w-6 h-6 text-sunrise-coral-muted" />
+                          <span className="text-[#c47275]">Negative</span>
+                        </>
+                      )}
+                    </h2>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs text-sunrise-burgundy/55">Confidence</span>
+                    <p className="text-2xl font-mono font-bold text-sunrise-burgundy">{result.confidence}%</p>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="h-2.5 w-full bg-sunrise-peach/50 rounded-full overflow-hidden flex border border-sunrise-burgundy/10">
+                    <div
+                      style={{ width: `${result.breakdown.negative}%` }}
+                      className="bg-sunrise-coral-muted transition-all duration-700 ease-out"
+                    />
+                    <div
+                      style={{ width: `${result.breakdown.positive}%` }}
+                      className="bg-sunrise-coral transition-all duration-700 ease-out"
+                    />
+                  </div>
+                  <div className="flex justify-between text-[11px] font-mono mt-1.5 text-sunrise-burgundy/55">
+                    <span>Neg {result.breakdown.negative}%</span>
+                    <span>Pos {result.breakdown.positive}%</span>
+                  </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={copyResultSummary}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-sunrise-burgundy bg-sunrise-peach/60 hover:bg-sunrise-peach px-3 py-1.5 rounded-lg border border-sunrise-burgundy/15 transition shrink-0"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-sunrise-coral" /> Copied
-                  </>
+
+              <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
+                <PillarHeader
+                  pillar={4}
+                  title="Lexical & readability stat cards"
+                  hint="Flesch reading ease, contrast markers, lexical diversity"
+                  icon={BookOpen}
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/25 p-4 text-center">
+                    <BookOpen className="w-4 h-4 mx-auto text-sunrise-coral mb-2" />
+                    <span className="text-[10px] uppercase tracking-wide text-sunrise-burgundy/55 block">
+                      Flesch score
+                    </span>
+                    <span className="text-xl font-bold text-sunrise-burgundy font-mono mt-1 block">
+                      {result.analytics.lexical.reading_ease}
+                    </span>
+                    <span className="text-[10px] text-sunrise-burgundy/45">reading ease</span>
+                  </div>
+                  <div className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/25 p-4 text-center">
+                    <Split className="w-4 h-4 mx-auto text-sunrise-coral-muted mb-2" />
+                    <span className="text-[10px] uppercase tracking-wide text-sunrise-burgundy/55 block">
+                      Contrast markers
+                    </span>
+                    <span className="text-xl font-bold text-sunrise-burgundy font-mono mt-1 block">
+                      {result.analytics.lexical.contrast_marker_count}
+                    </span>
+                    <span className="text-[10px] text-sunrise-burgundy/45">but / however / yet…</span>
+                  </div>
+                  <div className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/25 p-4 text-center">
+                    <Layers className="w-4 h-4 mx-auto text-sunrise-coral mb-2" />
+                    <span className="text-[10px] uppercase tracking-wide text-sunrise-burgundy/55 block">
+                      Diversity
+                    </span>
+                    <span className="text-xl font-bold text-sunrise-burgundy font-mono mt-1 block">
+                      {result.analytics.lexical.lexical_diversity_pct}%
+                    </span>
+                    <span className="text-[10px] text-sunrise-burgundy/45">unique / total words</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
+                <PillarHeader
+                  pillar={1}
+                  title="Aspect-based polarity breakdown"
+                  hint="Horizontal dynamic meters per critique dimension (0–100% polarity)"
+                  icon={BarChart3}
+                />
+                <div className="flex flex-col gap-4">
+                  {Object.entries(result.analytics.aspects).map(([aspect, score]) => (
+                    <div key={aspect}>
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span className="text-sunrise-burgundy font-medium">{aspect}</span>
+                        <span className="font-mono text-[11px] text-sunrise-burgundy/60">
+                          {score !== null ? `${score}%` : "Not mentioned"}
+                        </span>
+                      </div>
+                      <div className="relative h-3 w-full rounded-full bg-sunrise-peach/50 border border-sunrise-burgundy/10 overflow-hidden">
+                        <div
+                          className="absolute top-0 bottom-0 w-px bg-sunrise-burgundy/25 z-10"
+                          style={{ left: "50%" }}
+                          aria-hidden
+                        />
+                        {score !== null ? (
+                          <div
+                            className={`absolute top-0 bottom-0 transition-all duration-700 ease-out ${
+                              score >= 50 ? "bg-sunrise-coral" : "bg-sunrise-coral-muted"
+                            }`}
+                            style={
+                              score >= 50
+                                ? { left: "50%", width: `${score - 50}%` }
+                                : { left: `${score}%`, width: `${50 - score}%` }
+                            }
+                          />
+                        ) : (
+                          <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent,transparent_6px,rgba(45,9,17,0.06)_6px,rgba(45,9,17,0.06)_12px)]" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
+                <PillarHeader
+                  pillar={2}
+                  title="Narrative sentiment trajectory"
+                  hint="Sentence-level compound scores · Recharts line series"
+                  icon={LineChartIcon}
+                />
+                {result.analytics.trajectory.length === 0 ? (
+                  <p className="text-xs text-sunrise-burgundy/45 text-center py-8">
+                    Add multiple sentences to plot a trajectory.
+                  </p>
                 ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" /> Copy summary
-                  </>
+                  <div className="h-52 w-full rounded-xl bg-sunrise-peach/20 border border-sunrise-burgundy/10 p-2 pt-3">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={result.analytics.trajectory}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+                      >
+                        <CartesianGrid strokeDasharray="4 4" stroke="#e5989b44" vertical={false} />
+                        <XAxis
+                          dataKey="sentence_index"
+                          stroke="#2d0911"
+                          tick={{ fill: "#2d0911", fontSize: 10, opacity: 0.65 }}
+                          tickFormatter={(v) => `S${v}`}
+                          axisLine={{ stroke: "#2d091122" }}
+                        />
+                        <YAxis
+                          domain={[-1, 1]}
+                          ticks={[-1, -0.5, 0, 0.5, 1]}
+                          stroke="#2d0911"
+                          tick={{ fill: "#2d0911", fontSize: 10, opacity: 0.65 }}
+                          axisLine={{ stroke: "#2d091122" }}
+                        />
+                        <ReferenceLine y={0} stroke="#f26c68" strokeDasharray="3 3" strokeOpacity={0.6} />
+                        <Tooltip content={<TrajectoryTooltip />} cursor={{ stroke: "#f26c68", strokeWidth: 1 }} />
+                        <Line
+                          type="monotone"
+                          dataKey="compound"
+                          name="Compound"
+                          stroke="#f26c68"
+                          strokeWidth={2.5}
+                          dot={{ fill: "#fffaf8", stroke: "#f26c68", strokeWidth: 2, r: 4 }}
+                          activeDot={{ r: 7, fill: "#f26c68", stroke: "#2d0911", strokeWidth: 1 }}
+                          animationDuration={800}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 )}
-              </button>
-            </div>
-
-            <blockquote className="text-sm text-sunrise-burgundy/80 border-l-2 border-sunrise-coral/60 pl-3 line-clamp-3">
-              &ldquo;{result.text}&rdquo;
-            </blockquote>
-
-            {/* Probability Bar */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs font-semibold">
-                <span className="text-[#c47275]">Negative ({result.breakdown.negative}%)</span>
-                <span className="text-sunrise-coral">Positive ({result.breakdown.positive}%)</span>
               </div>
-              <div
-                className="w-full h-3 bg-sunrise-peach/50 rounded-full overflow-hidden flex border border-sunrise-burgundy/15"
-                role="img"
-                aria-label={`Negative ${result.breakdown.negative} percent, positive ${result.breakdown.positive} percent`}
-              >
-                <div
-                  style={{ width: `${result.breakdown.negative}%` }}
-                  className="bg-sunrise-coral-muted transition-all duration-500"
-                />
-                <div
-                  style={{ width: `${result.breakdown.positive}%` }}
-                  className="bg-sunrise-coral transition-all duration-500"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* History Section */}
-        <section id="history" className="scroll-mt-24 space-y-3" aria-labelledby="history-heading">
-          <h2 id="history-heading" className="sr-only">
-            Recent history
-          </h2>
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-sunrise-burgundy/70 text-sm font-medium">
-              <History className="w-4 h-4" />
-              <span>Recent Queries (SQLite)</span>
-            </div>
-            <button
-              type="button"
-              onClick={fetchHistory}
-              disabled={historyLoading}
-              className="inline-flex items-center gap-1 text-xs text-sunrise-burgundy/70 hover:text-sunrise-burgundy disabled:opacity-50 transition"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
-          </div>
-
-          {history.length > 0 ? (
-            <div className="space-y-2">
-              {history.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => loadFromHistory(item.text)}
-                  className="w-full text-left p-3.5 bg-sunrise-peach/50 border border-sunrise-burgundy/12 rounded-xl flex items-center justify-between text-sm gap-4 hover:bg-sunrise-peach/80 hover:border-sunrise-burgundy/20 transition focus:outline-none focus:ring-2 focus:ring-sunrise-coral/50"
-                  title="Click to load this review into the editor"
-                >
-                  <p className="truncate text-sunrise-burgundy/90 flex-1">{item.text}</p>
-                  <span
-                    className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border shrink-0 ${
-                      item.sentiment === "Positive"
-                        ? "bg-sunrise-coral/15 text-sunrise-coral border-sunrise-coral/30"
-                        : "bg-sunrise-coral-muted/15 text-sunrise-coral-muted border-sunrise-coral-muted/30"
-                    }`}
-                  >
-                    {item.sentiment} ({item.confidence}%)
-                  </span>
-                </button>
-              ))}
-            </div>
+            </>
           ) : (
-            <p className="text-sm text-sunrise-burgundy/55 bg-sunrise-peach/30 border border-dashed border-sunrise-burgundy/15 rounded-xl px-4 py-6 text-center">
-              No history yet. Run your first analysis and it will appear here. Click any entry later to reuse it in
-              the editor.
-            </p>
+            <div className="h-full min-h-[420px] border border-dashed border-sunrise-burgundy/20 rounded-2xl flex flex-col items-center justify-center p-8 text-center text-sunrise-burgundy/45">
+              <Sparkles className="w-10 h-10 mb-3 text-sunrise-coral/40" />
+              <p className="text-sm font-medium text-sunrise-burgundy/80">Ready to analyze</p>
+              <p className="text-xs max-w-sm mt-2 leading-relaxed">
+                Run a critique to unlock Pillars 1–4: aspect meters, Recharts trajectory, XAI token inspector,
+                and lexical stat cards—plus live history with DELETE.
+              </p>
+            </div>
           )}
-        </section>
+        </div>
       </div>
     </main>
   );
