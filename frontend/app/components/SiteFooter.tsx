@@ -17,22 +17,22 @@ export function SiteFooter() {
           </div>
 
           <div className="space-y-3">
-            <p className="text-sm font-semibold text-white uppercase tracking-wide">On this page</p>
+            <p className="text-sm font-semibold text-white uppercase tracking-wide">Explore</p>
             <ul className="space-y-2 text-sm">
               <li>
-                <a href="#analyze" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
+                <Link href="/dashboard" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
+                  Open dashboard
+                </Link>
+              </li>
+              <li>
+                <Link href="/dashboard#analyze" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
                   Analyze a review
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="#how-it-works" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
-                  How it works
-                </a>
-              </li>
-              <li>
-                <a href="#history" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
+                <Link href="/dashboard#history" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
                   Recent history
-                </a>
+                </Link>
               </li>
             </ul>
           </div>
