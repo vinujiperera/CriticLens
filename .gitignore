@@ -1,6 +1,8 @@
 # Environments
 .venv/
 venv/
+backend/.env
+.env
 __pycache__/
 .ipynb_checkpoints/
 

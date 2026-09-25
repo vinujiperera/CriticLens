@@ -20,8 +20,13 @@ export function SiteFooter() {
             <p className="text-sm font-semibold text-white uppercase tracking-wide">Explore</p>
             <ul className="space-y-2 text-sm">
               <li>
+                <Link href="/movies" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
+                  Browse movies
+                </Link>
+              </li>
+              <li>
                 <Link href="/dashboard" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
-                  Open dashboard
+                  Analytics lab
                 </Link>
               </li>
               <li>

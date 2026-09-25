@@ -34,10 +34,13 @@ export default function HomePage() {
             breakdowns in seconds.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 max-w-xl mx-auto pt-2">
-            <div className="flex-1 rounded-md border border-white/25 bg-black/40 backdrop-blur-sm px-4 py-3.5 text-left text-sm text-white/50">
-              Paste reviews in the analyzer — no account required
-            </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 max-w-2xl mx-auto pt-2">
+            <Link
+              href="/movies"
+              className="flex-1 rounded-md border border-white/25 bg-black/40 backdrop-blur-sm px-4 py-3.5 text-center sm:text-left text-sm text-white/80 hover:bg-black/50 transition"
+            >
+              Browse movies & read reviews →
+            </Link>
             <Link
               href="/dashboard"
               className="inline-flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-sunrise-coral to-[#e85f5b] px-8 py-3.5 text-base font-semibold text-white shadow-xl shadow-sunrise-coral/25 hover:opacity-95 transition whitespace-nowrap"

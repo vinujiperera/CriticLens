@@ -7,13 +7,24 @@ import os
 import re
 import math
 from datetime import datetime
+from collections import defaultdict
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+except ImportError:
+    pass
 
 import nltk
 from nltk.tokenize import sent_tokenize
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Text, text
+from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
+
+import tmdb_client
+from tmdb_client import TMDBError, poster_url as tmdb_poster_url
 
 # ---------------------------------------------------------
 # 1. DATABASE SETUP (SQLite + SQLAlchemy)
@@ -32,7 +43,61 @@ class ReviewRecord(Base):
     confidence = Column(Float, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
+
+class Movie(Base):
+    __tablename__ = "movies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False, index=True)
+    year = Column(Integer, nullable=False)
+    director = Column(String(120), nullable=False)
+    genre = Column(String(80), nullable=False)
+    synopsis = Column(Text, nullable=False)
+    poster_accent = Column(String(32), default="coral")
+    tmdb_id = Column(Integer, nullable=True, unique=True, index=True)
+    poster_path = Column(String(255), nullable=True)
+
+    reviews = relationship("MovieReview", back_populates="movie", cascade="all, delete-orphan")
+
+
+class MovieReview(Base):
+    __tablename__ = "movie_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False, index=True)
+    author_name = Column(String(80), default="Anonymous")
+    text = Column(Text, nullable=False)
+    sentiment = Column(String(20), nullable=False)
+    confidence = Column(Float, nullable=False)
+    positive_pct = Column(Float, nullable=False)
+    negative_pct = Column(Float, nullable=False)
+    neutral_pct = Column(Float, nullable=False)
+    vader_compound = Column(Float, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+    movie = relationship("Movie", back_populates="reviews")
+
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_movie_schema() -> None:
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(movies)")).fetchall()
+        existing = {row[1] for row in rows}
+        if "tmdb_id" not in existing:
+            conn.execute(text("ALTER TABLE movies ADD COLUMN tmdb_id INTEGER"))
+        if "poster_path" not in existing:
+            conn.execute(text("ALTER TABLE movies ADD COLUMN poster_path VARCHAR(255)"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_movies_tmdb_id "
+                "ON movies (tmdb_id) WHERE tmdb_id IS NOT NULL"
+            )
+        )
+
+
+ensure_movie_schema()
+
 
 def get_db():
     db = SessionLocal()
@@ -210,9 +275,237 @@ def compute_lexical_metrics(text: str) -> Dict[str, Any]:
     }
 
 # ---------------------------------------------------------
+# 3b. MOVIE PLATFORM HELPERS
+# ---------------------------------------------------------
+
+SEED_MOVIES = [
+    {
+        "title": "Midnight Echoes",
+        "year": 2024,
+        "director": "Ava Chen",
+        "genre": "Thriller",
+        "synopsis": "A sound engineer uncovers a conspiracy hidden in archived broadcast tapes beneath a decaying cinema.",
+        "poster_accent": "burgundy",
+    },
+    {
+        "title": "Solar Drift",
+        "year": 2023,
+        "director": "Marcus Hale",
+        "genre": "Sci-Fi",
+        "synopsis": "A stranded pilot must cross an unstable asteroid belt using only a failing AI co-pilot and instinct.",
+        "poster_accent": "coral",
+    },
+    {
+        "title": "The Last Verdict",
+        "year": 2022,
+        "director": "Priya Nair",
+        "genre": "Drama",
+        "synopsis": "A retired judge reopens a cold case that forces her to confront the town she once protected.",
+        "poster_accent": "peach",
+    },
+    {
+        "title": "Neon Harbor",
+        "year": 2025,
+        "director": "Diego Alvarez",
+        "genre": "Action",
+        "synopsis": "Undercover agents infiltrate a smuggling ring operating from floating markets in a flooded megacity.",
+        "poster_accent": "coral",
+    },
+    {
+        "title": "Paper Planets",
+        "year": 2021,
+        "director": "Lena Okonkwo",
+        "genre": "Animation",
+        "synopsis": "Two siblings fold origami worlds that begin to collide with their real-life neighborhood.",
+        "poster_accent": "peach",
+    },
+    {
+        "title": "Quiet Frequency",
+        "year": 2020,
+        "director": "Tomás Rivera",
+        "genre": "Mystery",
+        "synopsis": "Radio listeners report the same whisper on different stations—leading to an abandoned observatory.",
+        "poster_accent": "burgundy",
+    },
+]
+
+
+def run_sentiment_inference(raw_text: str) -> Dict[str, Any]:
+    prediction = pipeline.predict([raw_text])[0]
+    probabilities = pipeline.predict_proba([raw_text])[0]
+    vader = vader_analyzer.polarity_scores(raw_text)
+
+    label = "Positive" if prediction == 1 else "Negative"
+    confidence = float(max(probabilities) * 100)
+
+    return {
+        "sentiment": label,
+        "confidence": round(confidence, 2),
+        "positive_pct": round(float(probabilities[1]) * 100, 2),
+        "negative_pct": round(float(probabilities[0]) * 100, 2),
+        "neutral_pct": round(float(vader["neu"]) * 100, 2),
+        "vader_compound": round(float(vader["compound"]), 3),
+    }
+
+
+def summarize_movie_reviews(reviews: List[MovieReview]) -> Dict[str, Any]:
+    if not reviews:
+        return {
+            "review_count": 0,
+            "overall_label": "No reviews yet",
+            "positive_pct": 0.0,
+            "negative_pct": 0.0,
+            "neutral_pct": 0.0,
+            "avg_confidence": 0.0,
+        }
+
+    pos = sum(1 for r in reviews if r.sentiment == "Positive")
+    neg = len(reviews) - pos
+    avg_pos = sum(r.positive_pct for r in reviews) / len(reviews)
+    avg_neg = sum(r.negative_pct for r in reviews) / len(reviews)
+    avg_neu = sum(r.neutral_pct for r in reviews) / len(reviews)
+    avg_conf = sum(r.confidence for r in reviews) / len(reviews)
+
+    if pos > neg:
+        overall = "Positive"
+    elif neg > pos:
+        overall = "Negative"
+    else:
+        overall = "Mixed"
+
+    return {
+        "review_count": len(reviews),
+        "overall_label": overall,
+        "positive_pct": round(avg_pos, 2),
+        "negative_pct": round(avg_neg, 2),
+        "neutral_pct": round(avg_neu, 2),
+        "avg_confidence": round(avg_conf, 2),
+        "positive_count": pos,
+        "negative_count": neg,
+    }
+
+
+def import_movie_from_tmdb(db: Session, tmdb_id: int) -> Movie:
+    existing = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
+    if existing:
+        return existing
+
+    details = tmdb_client.normalize_movie_details(tmdb_client.get_movie(tmdb_id))
+    movie = Movie(
+        tmdb_id=details["tmdb_id"],
+        title=details["title"],
+        year=details["year"] or 2000,
+        director=details["director"],
+        genre=details["genre"],
+        synopsis=details["synopsis"],
+        poster_path=details["poster_path"],
+        poster_accent="coral",
+    )
+    db.add(movie)
+    db.commit()
+    db.refresh(movie)
+    return movie
+
+
+def sync_tmdb_search(db: Session, query: str, limit: int = 8) -> None:
+    if not tmdb_client.is_configured() or not query.strip():
+        return
+    try:
+        for item in tmdb_client.search_results(query, limit=limit):
+            tmdb_id = item.get("id")
+            if tmdb_id:
+                import_movie_from_tmdb(db, int(tmdb_id))
+    except TMDBError:
+        pass
+
+
+def seed_tmdb_popular(db: Session, limit: int = 12) -> None:
+    if not tmdb_client.is_configured():
+        return
+    try:
+        for item in tmdb_client.popular_results(limit=limit):
+            tmdb_id = item.get("id")
+            if tmdb_id:
+                import_movie_from_tmdb(db, int(tmdb_id))
+    except TMDBError:
+        pass
+
+
+def movie_to_dict(movie: Movie, db: Session) -> Dict[str, Any]:
+    reviews = db.query(MovieReview).filter(MovieReview.movie_id == movie.id).all()
+    summary = summarize_movie_reviews(reviews)
+    return {
+        "id": movie.id,
+        "tmdb_id": movie.tmdb_id,
+        "title": movie.title,
+        "year": movie.year,
+        "director": movie.director,
+        "genre": movie.genre,
+        "synopsis": movie.synopsis,
+        "poster_accent": movie.poster_accent,
+        "poster_path": movie.poster_path,
+        "poster_url": tmdb_poster_url(movie.poster_path),
+        "sentiment": summary,
+    }
+
+
+def seed_platform_data(db: Session) -> None:
+    if tmdb_client.is_configured():
+        if db.query(Movie).filter(Movie.tmdb_id.isnot(None)).count() == 0:
+            seed_tmdb_popular(db, limit=12)
+        return
+
+    if db.query(Movie).count() > 0:
+        return
+
+    movies = [Movie(**item) for item in SEED_MOVIES]
+    db.add_all(movies)
+    db.commit()
+
+    sample_reviews = [
+        (1, "A gripping thriller with sharp sound design and a tense final act.", "Jordan"),
+        (1, "The plot loses steam in the middle and the villain twist feels unearned.", "Sam"),
+        (2, "Visually stunning space sequences and a heartfelt AI performance.", "Riley"),
+        (2, "Too many scientific loopholes and the ending rushed every emotional beat.", "Casey"),
+        (3, "Brilliant courtroom dialogue and a powerful lead performance.", "Morgan"),
+        (4, "Relentless action set pieces with creative choreography in the harbor.", "Alex"),
+        (5, "Whimsical animation with thoughtful metaphors about growing up.", "Jamie"),
+    ]
+
+    for movie_id, text, author in sample_reviews:
+        movie = db.query(Movie).filter(Movie.id == movie_id).first()
+        if not movie:
+            continue
+        scores = run_sentiment_inference(text)
+        db.add(
+            MovieReview(
+                movie_id=movie.id,
+                author_name=author,
+                text=text,
+                sentiment=scores["sentiment"],
+                confidence=scores["confidence"],
+                positive_pct=scores["positive_pct"],
+                negative_pct=scores["negative_pct"],
+                neutral_pct=scores["neutral_pct"],
+                vader_compound=scores["vader_compound"],
+            )
+        )
+    db.commit()
+
+
+# ---------------------------------------------------------
 # 4. FASTAPI APP & ROUTES
 # ---------------------------------------------------------
-app = FastAPI(title="CriticLens API", version="2.0.0")
+app = FastAPI(title="CriticLens API", version="3.1.0")
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    db = SessionLocal()
+    try:
+        seed_platform_data(db)
+    finally:
+        db.close()
 
 app.add_middleware(
     CORSMiddleware,
@@ -225,30 +518,29 @@ app.add_middleware(
 class ReviewRequest(BaseModel):
     text: str
 
+
+class MovieReviewCreate(BaseModel):
+    text: str
+    author_name: str = "Anonymous"
+
+
 @app.post("/predict")
 def predict_sentiment(payload: ReviewRequest, db: Session = Depends(get_db)):
     raw_text = payload.text.strip()
     if not raw_text:
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
 
-    # Primary ML Model Inference
-    prediction = pipeline.predict([raw_text])[0]
-    probabilities = pipeline.predict_proba([raw_text])[0]
+    scores = run_sentiment_inference(raw_text)
 
-    label = "Positive" if prediction == 1 else "Negative"
-    confidence = float(max(probabilities) * 100)
-
-    # Persist in SQLite
     record = ReviewRecord(
         text=raw_text,
-        sentiment=label,
-        confidence=round(confidence, 2)
+        sentiment=scores["sentiment"],
+        confidence=scores["confidence"],
     )
     db.add(record)
     db.commit()
     db.refresh(record)
 
-    # Compute Enriched Analytics
     aspects = analyze_aspects(raw_text)
     trajectory = analyze_trajectory(raw_text)
     token_impacts = analyze_token_impacts(raw_text)
@@ -257,18 +549,199 @@ def predict_sentiment(payload: ReviewRequest, db: Session = Depends(get_db)):
     return {
         "id": record.id,
         "text": raw_text,
-        "sentiment": label,
-        "confidence": round(confidence, 2),
+        "sentiment": scores["sentiment"],
+        "confidence": scores["confidence"],
         "breakdown": {
-            "positive": round(float(probabilities[1]) * 100, 2),
-            "negative": round(float(probabilities[0]) * 100, 2),
+            "positive": scores["positive_pct"],
+            "negative": scores["negative_pct"],
         },
         "analytics": {
             "aspects": aspects,
             "trajectory": trajectory,
             "token_impacts": token_impacts,
-            "lexical": lexical
-        }
+            "lexical": lexical,
+        },
+    }
+
+
+@app.get("/tmdb/status")
+def tmdb_status():
+    return {"configured": tmdb_client.is_configured()}
+
+
+@app.post("/movies/sync/popular")
+def sync_popular_movies(db: Session = Depends(get_db)):
+    if not tmdb_client.is_configured():
+        raise HTTPException(status_code=503, detail="TMDB_API_KEY is not configured on the server.")
+    try:
+        seed_tmdb_popular(db, limit=20)
+    except TMDBError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    count = db.query(Movie).filter(Movie.tmdb_id.isnot(None)).count()
+    return {"tmdb_movies_in_catalog": count}
+
+
+@app.post("/movies/import/tmdb/{tmdb_id}")
+def import_tmdb_movie(tmdb_id: int, db: Session = Depends(get_db)):
+    if not tmdb_client.is_configured():
+        raise HTTPException(status_code=503, detail="TMDB_API_KEY is not configured on the server.")
+    try:
+        movie = import_movie_from_tmdb(db, tmdb_id)
+    except TMDBError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return movie_to_dict(movie, db)
+
+
+@app.get("/movies")
+def search_movies(q: Optional[str] = None, db: Session = Depends(get_db)):
+    if q and q.strip():
+        sync_tmdb_search(db, q.strip(), limit=8)
+
+    query = db.query(Movie)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (Movie.title.ilike(like))
+            | (Movie.director.ilike(like))
+            | (Movie.genre.ilike(like))
+        )
+    movies = query.order_by(Movie.title.asc()).all()
+    return [movie_to_dict(movie, db) for movie in movies]
+
+
+@app.get("/movies/compare")
+def compare_movies(ids: str, db: Session = Depends(get_db)):
+    try:
+        movie_ids = [int(x) for x in ids.split(",") if x.strip()]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid movie id list.") from exc
+
+    if len(movie_ids) < 2 or len(movie_ids) > 5:
+        raise HTTPException(status_code=400, detail="Provide between 2 and 5 movie ids.")
+
+    comparisons = []
+    for mid in movie_ids:
+        movie = db.query(Movie).filter(Movie.id == mid).first()
+        if not movie:
+            raise HTTPException(status_code=404, detail=f"Movie {mid} not found.")
+        reviews = db.query(MovieReview).filter(MovieReview.movie_id == mid).all()
+        comparisons.append(
+            {
+                "id": movie.id,
+                "title": movie.title,
+                "year": movie.year,
+                "poster_url": tmdb_poster_url(movie.poster_path),
+                "sentiment": summarize_movie_reviews(reviews),
+            }
+        )
+    return comparisons
+
+
+@app.get("/movies/{movie_id}")
+def get_movie(movie_id: int, db: Session = Depends(get_db)):
+    movie = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found.")
+
+    reviews = (
+        db.query(MovieReview)
+        .filter(MovieReview.movie_id == movie_id)
+        .order_by(MovieReview.timestamp.desc())
+        .all()
+    )
+    payload = movie_to_dict(movie, db)
+    payload["sentiment"] = summarize_movie_reviews(reviews)
+    payload["reviews"] = [
+            {
+                "id": r.id,
+                "author_name": r.author_name,
+                "text": r.text,
+                "sentiment": r.sentiment,
+                "confidence": r.confidence,
+                "positive_pct": r.positive_pct,
+                "negative_pct": r.negative_pct,
+                "neutral_pct": r.neutral_pct,
+                "vader_compound": r.vader_compound,
+                "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            }
+            for r in reviews
+        ]
+    return payload
+
+
+@app.get("/movies/{movie_id}/sentiment/trends")
+def get_sentiment_trends(movie_id: int, db: Session = Depends(get_db)):
+    movie = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found.")
+
+    reviews = (
+        db.query(MovieReview)
+        .filter(MovieReview.movie_id == movie_id)
+        .order_by(MovieReview.timestamp.asc())
+        .all()
+    )
+
+    buckets: Dict[str, List[float]] = defaultdict(list)
+    for review in reviews:
+        if not review.timestamp:
+            continue
+        day_key = review.timestamp.date().isoformat()
+        buckets[day_key].append(review.vader_compound)
+
+    trend = []
+    for day in sorted(buckets.keys()):
+        values = buckets[day]
+        trend.append(
+            {
+                "date": day,
+                "avg_compound": round(sum(values) / len(values), 3),
+                "review_count": len(values),
+            }
+        )
+    return trend
+
+
+@app.post("/movies/{movie_id}/reviews")
+def submit_movie_review(movie_id: int, payload: MovieReviewCreate, db: Session = Depends(get_db)):
+    movie = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found.")
+
+    raw_text = payload.text.strip()
+    if len(raw_text) < 3:
+        raise HTTPException(status_code=400, detail="Review must be at least 3 characters.")
+
+    author = payload.author_name.strip() or "Anonymous"
+    scores = run_sentiment_inference(raw_text)
+
+    review = MovieReview(
+        movie_id=movie_id,
+        author_name=author,
+        text=raw_text,
+        sentiment=scores["sentiment"],
+        confidence=scores["confidence"],
+        positive_pct=scores["positive_pct"],
+        negative_pct=scores["negative_pct"],
+        neutral_pct=scores["neutral_pct"],
+        vader_compound=scores["vader_compound"],
+    )
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+
+    return {
+        "id": review.id,
+        "movie_id": movie_id,
+        "author_name": review.author_name,
+        "text": review.text,
+        "sentiment": review.sentiment,
+        "confidence": review.confidence,
+        "positive_pct": review.positive_pct,
+        "negative_pct": review.negative_pct,
+        "neutral_pct": review.neutral_pct,
+        "vader_compound": review.vader_compound,
+        "timestamp": review.timestamp.isoformat() if review.timestamp else None,
     }
 
 @app.get("/history")
