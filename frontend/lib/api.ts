@@ -119,6 +119,63 @@ export async function fetchMovie(id: number): Promise<MovieDetail> {
   return res.json();
 }
 
+export type DriverWord = { word: string; weight: number };
+
+export type MovieDossier = {
+  generated_at: string;
+  movie: {
+    id: number;
+    title: string;
+    year: number;
+    director: string;
+    genre: string;
+    poster_url: string | null;
+  };
+  audience_source: string;
+  sentiment: MovieSentimentSummary;
+  aspects: MovieAspectScores;
+  consensus_blurb: string;
+  driver_words: {
+    positive: DriverWord[];
+    negative: DriverWord[];
+  };
+};
+
+export async function fetchMovieDossier(id: number): Promise<MovieDossier> {
+  const res = await fetch(`${API_BASE}/movies/${id}/dossier`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to load dossier");
+  return res.json();
+}
+
+export type ReviewReportPayload = {
+  context_title: string;
+  context_subtitle: string;
+  author: string;
+  review_text: string;
+  sentiment: string;
+  confidence: number;
+  positive_pct: number;
+  negative_pct: number;
+  neutral_pct: number;
+  aspects: Record<string, number | null>;
+  driver_words: {
+    positive: DriverWord[];
+    negative: DriverWord[];
+  };
+  timestamp: string | null;
+};
+
+export async function fetchMovieReviewReport(
+  movieId: number,
+  reviewId: number
+): Promise<ReviewReportPayload> {
+  const res = await fetch(`${API_BASE}/movies/${movieId}/reviews/${reviewId}/report`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Failed to load review report");
+  return res.json();
+}
+
 export async function fetchMovieTrends(id: number): Promise<SentimentTrendPoint[]> {
   const res = await fetch(`${API_BASE}/movies/${id}/sentiment/trends`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load trends");

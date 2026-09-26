@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Loader2, RefreshCw, Search, Star } from "lucide-react";
 import { fetchMovies, fetchTmdbStatus, syncPopularMovies, type MovieListItem } from "@/lib/api";
 import { MoviePoster } from "../components/MoviePoster";
-import { SentimentBreakdown } from "../components/SentimentBreakdown";
+import { SentimentBreakdown, sentimentTextClass } from "../components/SentimentBreakdown";
 
 export default function MoviesPage() {
   const [query, setQuery] = useState("");
@@ -129,7 +129,9 @@ export default function MoviesPage() {
                 </div>
                 <div className="flex items-center gap-2 text-xs flex-wrap">
                   <Star className="w-3.5 h-3.5 text-sunrise-coral shrink-0" />
-                  <span className="font-semibold">{movie.sentiment.overall_label}</span>
+                  <span className={`font-semibold ${sentimentTextClass(movie.sentiment.overall_label)}`}>
+                    {movie.sentiment.overall_label}
+                  </span>
                   <span className="text-sunrise-burgundy/45">
                     ({movie.sentiment.review_count} reviews
                     {movie.audience_source === "tmdb" ? ", TMDB" : ""})

@@ -23,7 +23,9 @@ import {
   History,
   LineChart as LineChartIcon,
   BarChart3,
+  Download,
 } from "lucide-react";
+import { downloadReviewReportPdf } from "@/lib/pdfReports";
 
 interface AspectScores {
   [key: string]: number | null;
@@ -124,7 +126,13 @@ function TrajectoryTooltip({
   const point = payload[0].payload;
   return (
     <div className="max-w-[220px] rounded-xl border border-sunrise-coral/40 bg-sunrise-surface px-3 py-2 shadow-lg text-[11px] text-sunrise-burgundy">
-      <p className="font-semibold text-sunrise-coral mb-1">Sentence {point.sentence_index}</p>
+      <p
+        className={`font-semibold mb-1 ${
+          point.compound >= 0 ? "text-sentiment-positive" : "text-sentiment-negative"
+        }`}
+      >
+        Sentence {point.sentence_index}
+      </p>
       <p className="leading-relaxed mb-2 opacity-90">&ldquo;{point.snippet}&rdquo;</p>
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px]">
         <span>Compound: {point.compound}</span>
@@ -138,10 +146,10 @@ function TrajectoryTooltip({
 
 function tokenStyles(token: TokenImpact) {
   if (token.weight > 0.15) {
-    return "bg-sunrise-coral/15 text-sunrise-coral border-sunrise-coral/35";
+    return "bg-sentiment-positive/12 text-sentiment-positive border-sentiment-positive/35";
   }
   if (token.weight < -0.15) {
-    return "bg-sunrise-coral-muted/20 text-[#c47275] border-sunrise-coral-muted/40";
+    return "bg-sentiment-negative/12 text-sentiment-negative border-sentiment-negative/35";
   }
   return "text-sunrise-burgundy/75 border-sunrise-burgundy/10 hover:bg-white/50";
 }
@@ -225,6 +233,36 @@ export default function Home() {
   };
 
   const activeToken = pinnedToken ?? hoverToken;
+
+  const handleDownloadLabPdf = () => {
+    if (!result) return;
+    const positive = result.analytics.token_impacts
+      .filter((t) => t.weight > 0)
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 8)
+      .map((t) => ({ word: t.word, weight: t.weight }));
+    const negative = result.analytics.token_impacts
+      .filter((t) => t.weight < 0)
+      .sort((a, b) => a.weight - b.weight)
+      .slice(0, 8)
+      .map((t) => ({ word: t.word, weight: t.weight }));
+
+    downloadReviewReportPdf(
+      {
+        contextTitle: "Review analyzer (Lab)",
+        contextSubtitle: "Paste-in critique · CriticLens ML stack",
+        reviewText: result.text,
+        sentiment: result.sentiment,
+        confidence: result.confidence,
+        positive_pct: result.breakdown.positive,
+        negative_pct: result.breakdown.negative,
+        neutral_pct: 100 - result.breakdown.positive - result.breakdown.negative,
+        aspects: result.analytics.aspects,
+        driver_words: { positive, negative },
+      },
+      `criticlens-lab-analysis-${result.id}.pdf`
+    );
+  };
 
   return (
     <main className="flex-1 px-4 py-8 md:px-8 md:py-10">
@@ -330,7 +368,17 @@ export default function Home() {
                             className="pointer-events-none absolute z-20 left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] whitespace-nowrap rounded-lg bg-sunrise-burgundy text-sunrise-cream px-2.5 py-1.5 text-[10px] font-medium shadow-lg"
                             role="tooltip"
                           >
-                            <span className="text-sunrise-coral">{token.influence}</span>
+                            <span
+                              className={
+                                token.influence === "Positive"
+                                  ? "text-sentiment-positive"
+                                  : token.influence === "Negative"
+                                    ? "text-sentiment-negative"
+                                    : "text-sunrise-burgundy/55"
+                              }
+                            >
+                              {token.influence}
+                            </span>
                             <span className="mx-1.5 opacity-40">|</span>
                             weight{" "}
                             <span className="font-mono">
@@ -359,9 +407,9 @@ export default function Home() {
                       <span
                         className={
                           activeToken.weight > 0
-                            ? "text-sunrise-coral"
+                            ? "text-sentiment-positive"
                             : activeToken.weight < 0
-                              ? "text-sunrise-coral-muted"
+                              ? "text-sentiment-negative"
                               : ""
                         }
                       >
@@ -407,7 +455,9 @@ export default function Home() {
                       <div className="flex flex-wrap items-center gap-2 mt-1">
                         <span
                           className={`text-[10px] font-semibold ${
-                            item.sentiment === "Positive" ? "text-sunrise-coral" : "text-sunrise-coral-muted"
+                            item.sentiment === "Positive"
+                              ? "text-sentiment-positive"
+                              : "text-sentiment-negative"
                           }`}
                         >
                           {item.sentiment} ({item.confidence}%)
@@ -437,7 +487,7 @@ export default function Home() {
           {result ? (
             <>
               <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <span className="text-[11px] uppercase tracking-wider text-sunrise-burgundy/55">
                       Primary classification
@@ -445,37 +495,47 @@ export default function Home() {
                     <h2 className="text-2xl font-black text-sunrise-burgundy flex items-center gap-2 mt-0.5">
                       {result.sentiment === "Positive" ? (
                         <>
-                          <TrendingUp className="w-6 h-6 text-sunrise-coral" />
-                          <span className="text-sunrise-coral">Positive</span>
+                          <TrendingUp className="w-6 h-6 text-sentiment-positive" />
+                          <span className="text-sentiment-positive">Positive</span>
                         </>
                       ) : (
                         <>
-                          <TrendingDown className="w-6 h-6 text-sunrise-coral-muted" />
-                          <span className="text-[#c47275]">Negative</span>
+                          <TrendingDown className="w-6 h-6 text-sentiment-negative" />
+                          <span className="text-sentiment-negative">Negative</span>
                         </>
                       )}
                     </h2>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs text-sunrise-burgundy/55">Confidence</span>
-                    <p className="text-2xl font-mono font-bold text-sunrise-burgundy">{result.confidence}%</p>
+                  <div className="flex flex-col items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadLabPdf}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sunrise-burgundy/15 bg-sunrise-surface text-xs font-medium hover:border-sunrise-coral/40"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download PDF
+                    </button>
+                    <div className="text-right">
+                      <span className="text-xs text-sunrise-burgundy/55">Confidence</span>
+                      <p className="text-2xl font-mono font-bold text-sunrise-burgundy">{result.confidence}%</p>
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-4">
                   <div className="h-2.5 w-full bg-sunrise-peach/50 rounded-full overflow-hidden flex border border-sunrise-burgundy/10">
                     <div
-                      style={{ width: `${result.breakdown.negative}%` }}
-                      className="bg-sunrise-coral-muted transition-all duration-700 ease-out"
+                      style={{ width: `${result.breakdown.positive}%` }}
+                      className="bg-sentiment-positive transition-all duration-700 ease-out"
                     />
                     <div
-                      style={{ width: `${result.breakdown.positive}%` }}
-                      className="bg-sunrise-coral transition-all duration-700 ease-out"
+                      style={{ width: `${result.breakdown.negative}%` }}
+                      className="bg-sentiment-negative transition-all duration-700 ease-out"
                     />
                   </div>
-                  <div className="flex justify-between text-[11px] font-mono mt-1.5 text-sunrise-burgundy/55">
-                    <span>Neg {result.breakdown.negative}%</span>
-                    <span>Pos {result.breakdown.positive}%</span>
+                  <div className="flex justify-between text-[11px] font-mono mt-1.5">
+                    <span className="text-sentiment-positive">Pos {result.breakdown.positive}%</span>
+                    <span className="text-sentiment-negative">Neg {result.breakdown.negative}%</span>
                   </div>
                 </div>
               </div>
@@ -544,7 +604,7 @@ export default function Home() {
                         {score !== null ? (
                           <div
                             className={`absolute top-0 bottom-0 transition-all duration-700 ease-out ${
-                              score >= 50 ? "bg-sunrise-coral" : "bg-sunrise-coral-muted"
+                              score >= 50 ? "bg-sentiment-positive" : "bg-sentiment-negative"
                             }`}
                             style={
                               score >= 50
@@ -593,16 +653,37 @@ export default function Home() {
                           tick={{ fill: "#2d0911", fontSize: 10, opacity: 0.65 }}
                           axisLine={{ stroke: "#2d091122" }}
                         />
-                        <ReferenceLine y={0} stroke="#f26c68" strokeDasharray="3 3" strokeOpacity={0.6} />
-                        <Tooltip content={<TrajectoryTooltip />} cursor={{ stroke: "#f26c68", strokeWidth: 1 }} />
+                        <ReferenceLine y={0} stroke="#2d091144" strokeDasharray="3 3" />
+                        <Tooltip content={<TrajectoryTooltip />} cursor={{ stroke: "#2d091133", strokeWidth: 1 }} />
                         <Line
                           type="monotone"
                           dataKey="compound"
                           name="Compound"
-                          stroke="#f26c68"
-                          strokeWidth={2.5}
-                          dot={{ fill: "#fffaf8", stroke: "#f26c68", strokeWidth: 2, r: 4 }}
-                          activeDot={{ r: 7, fill: "#f26c68", stroke: "#2d0911", strokeWidth: 1 }}
+                          stroke="#64748b"
+                          strokeWidth={2}
+                          dot={(props) => {
+                            const { cx, cy, payload } = props;
+                            if (cx == null || cy == null) return null;
+                            const positive = (payload as TrajectoryPoint).compound >= 0;
+                            const fill = positive ? "#16a34a" : "#dc2626";
+                            return (
+                              <circle
+                                cx={cx}
+                                cy={cy}
+                                r={4}
+                                fill={fill}
+                                stroke="#fffaf8"
+                                strokeWidth={2}
+                              />
+                            );
+                          }}
+                          activeDot={(props) => {
+                            const { cx, cy, payload } = props;
+                            if (cx == null || cy == null) return null;
+                            const positive = (payload as TrajectoryPoint).compound >= 0;
+                            const fill = positive ? "#16a34a" : "#dc2626";
+                            return <circle cx={cx} cy={cy} r={7} fill={fill} stroke="#2d0911" strokeWidth={1} />;
+                          }}
                           animationDuration={800}
                         />
                       </LineChart>

@@ -508,6 +508,76 @@ def tmdb_audience_package(movie: Movie, limit: int = 5) -> Optional[Dict[str, An
     return payload
 
 
+def collect_movie_review_texts(movie: Movie, db: Session, audience_source: str) -> List[str]:
+    reviews = db.query(MovieReview).filter(MovieReview.movie_id == movie.id).all()
+    texts = [r.text for r in reviews if r.text and r.text.strip()]
+    if texts:
+        return texts
+    if audience_source == "tmdb":
+        pkg = tmdb_audience_package(movie, limit=5)
+        if pkg:
+            return [r["text"] for r in pkg["reviews"] if r.get("text")]
+    return []
+
+
+def aggregate_driver_words(texts: List[str], limit: int = 6) -> Dict[str, List[Dict[str, Any]]]:
+    best: Dict[str, Dict[str, Any]] = {}
+    for text in texts:
+        for token in analyze_token_impacts(text):
+            weight = float(token["weight"])
+            if weight == 0.0:
+                continue
+            key = str(token["word"]).lower()
+            current = best.get(key)
+            if current is None or abs(weight) > abs(float(current["weight"])):
+                best[key] = {"word": token["word"], "weight": round(weight, 3)}
+
+    positive = sorted(
+        (entry for entry in best.values() if entry["weight"] > 0),
+        key=lambda item: item["weight"],
+        reverse=True,
+    )[:limit]
+    negative = sorted(
+        (entry for entry in best.values() if entry["weight"] < 0),
+        key=lambda item: item["weight"],
+    )[:limit]
+    return {"positive": positive, "negative": negative}
+
+
+def build_consensus_blurb(
+    sentiment: Dict[str, Any], aspects: Dict[str, float], audience_source: str
+) -> str:
+    count = int(sentiment.get("review_count") or 0)
+    if count == 0:
+        return (
+            "Not enough review text is available yet to produce an audience consensus summary. "
+            "Import TMDB titles or post reviews to populate this dossier."
+        )
+
+    label = sentiment.get("overall_label", "Mixed")
+    pos = sentiment.get("positive_pct", 0.0)
+    neg = sentiment.get("negative_pct", 0.0)
+    conf = sentiment.get("avg_confidence", 0.0)
+
+    ranked = sorted(aspects.items(), key=lambda pair: abs(pair[1] - 50.0), reverse=True)
+    top_aspect, top_score = ranked[0] if ranked else ("Story & Writing", 50.0)
+    tone = "favorable" if top_score >= 55 else "critical" if top_score <= 45 else "mixed"
+
+    source_note = (
+        "Scores aggregate CriticLens submissions."
+        if audience_source == "criticlens"
+        else "Scores auto-analyze TMDB community reviews via the CriticLens ML stack."
+        if audience_source == "tmdb"
+        else "Scores reflect available catalog data."
+    )
+
+    return (
+        f"Across {count} analyzed reviews, audience consensus is {label} "
+        f"({pos:.0f}% positive / {neg:.0f}% negative, {conf:.0f}% avg model confidence). "
+        f"{top_aspect} shows the strongest signal ({top_score:.0f}% — {tone}). {source_note}"
+    )
+
+
 def movie_aspects_and_sentiment(movie: Movie, db: Session) -> tuple[Dict[str, Any], Dict[str, float], str]:
     reviews = db.query(MovieReview).filter(MovieReview.movie_id == movie.id).all()
     if reviews:
@@ -818,6 +888,35 @@ def get_movie(movie_id: int, db: Session = Depends(get_db)):
     return payload
 
 
+@app.get("/movies/{movie_id}/dossier")
+def get_movie_dossier(movie_id: int, db: Session = Depends(get_db)):
+    movie = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found.")
+
+    sentiment, aspects, audience_source = movie_aspects_and_sentiment(movie, db)
+    sentiment_clean = {k: v for k, v in sentiment.items() if k != "audience_source"}
+    texts = collect_movie_review_texts(movie, db, audience_source)
+    drivers = aggregate_driver_words(texts)
+
+    return {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "movie": {
+            "id": movie.id,
+            "title": movie.title,
+            "year": movie.year,
+            "director": movie.director,
+            "genre": movie.genre,
+            "poster_url": tmdb_poster_url(movie.poster_path),
+        },
+        "audience_source": audience_source,
+        "sentiment": sentiment_clean,
+        "aspects": aspects,
+        "consensus_blurb": build_consensus_blurb(sentiment_clean, aspects, audience_source),
+        "driver_words": drivers,
+    }
+
+
 @app.get("/movies/{movie_id}/community-reviews")
 def get_community_reviews(movie_id: int, db: Session = Depends(get_db)):
     """TMDB user reviews, analyzed with CriticLens ML when local reviews are sparse."""
@@ -845,6 +944,39 @@ def get_community_reviews(movie_id: int, db: Session = Depends(get_db)):
         "aspects": pkg["aspects"],
         "configured": True,
         "source": "tmdb",
+    }
+
+
+@app.get("/movies/{movie_id}/reviews/{review_id}/report")
+def get_movie_review_report(movie_id: int, review_id: int, db: Session = Depends(get_db)):
+    movie = db.query(Movie).filter(Movie.id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found.")
+
+    review = (
+        db.query(MovieReview)
+        .filter(MovieReview.id == review_id, MovieReview.movie_id == movie_id)
+        .first()
+    )
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found.")
+
+    aspects = analyze_aspects(review.text)
+    drivers = aggregate_driver_words([review.text])
+
+    return {
+        "context_title": movie.title,
+        "context_subtitle": f"{movie.year} · {movie.genre} · Directed by {movie.director}",
+        "author": review.author_name,
+        "review_text": review.text,
+        "sentiment": review.sentiment,
+        "confidence": review.confidence,
+        "positive_pct": review.positive_pct,
+        "negative_pct": review.negative_pct,
+        "neutral_pct": review.neutral_pct,
+        "aspects": aspects,
+        "driver_words": drivers,
+        "timestamp": review.timestamp.isoformat() if review.timestamp else None,
     }
 
 

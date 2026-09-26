@@ -23,7 +23,7 @@ export function AspectGauges({
             />
             <div
               className={`absolute top-0 bottom-0 transition-all duration-700 ease-out ${
-                score >= 50 ? "bg-sunrise-coral" : "bg-sunrise-coral-muted"
+                score >= 50 ? "bg-sentiment-positive" : "bg-sentiment-negative"
               }`}
               style={
                 score >= 50

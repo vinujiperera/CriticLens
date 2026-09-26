@@ -24,7 +24,7 @@ import {
   type CompareMovieRow,
   type MovieListItem,
 } from "@/lib/api";
-import { SentimentBreakdown } from "../../components/SentimentBreakdown";
+import { SentimentBreakdown, sentimentTextClass } from "../../components/SentimentBreakdown";
 
 const COMPARE_COLORS = ["#E06464", "#2E1B1B", "#EDD0AC"] as const;
 const ASPECT_KEYS = [
@@ -260,7 +260,7 @@ function CompareMoviesContent() {
             >
               <h2 className="font-bold text-lg">{row.title}</h2>
               <p className="text-xs text-sunrise-burgundy/50 mb-1">{row.year}</p>
-              <p className="text-sm font-semibold text-sunrise-coral mb-3">
+              <p className={`text-sm font-semibold mb-3 ${sentimentTextClass(row.sentiment.overall_label)}`}>
                 {row.sentiment.overall_label} · {row.sentiment.review_count} reviews
               </p>
               <SentimentBreakdown
