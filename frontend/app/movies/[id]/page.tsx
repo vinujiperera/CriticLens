@@ -12,16 +12,15 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { ArrowLeft, Loader2, MessageSquarePlus } from "lucide-react";
+import { ArrowLeft, BarChart3, Loader2, MessageSquarePlus } from "lucide-react";
 import {
-  fetchCommunityReviews,
   fetchMovie,
   fetchMovieTrends,
   submitMovieReview,
-  type CommunityReview,
   type MovieDetail,
   type SentimentTrendPoint,
 } from "@/lib/api";
+import { AspectGauges } from "../../components/AspectGauges";
 import { MoviePoster } from "../../components/MoviePoster";
 import { SentimentBreakdown } from "../../components/SentimentBreakdown";
 
@@ -30,8 +29,6 @@ export default function MovieDetailPage() {
   const movieId = Number(params.id);
 
   const [movie, setMovie] = useState<MovieDetail | null>(null);
-  const [communityReviews, setCommunityReviews] = useState<CommunityReview[]>([]);
-  const [tmdbReviewsConfigured, setTmdbReviewsConfigured] = useState(true);
   const [trends, setTrends] = useState<SentimentTrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviewText, setReviewText] = useState("");
@@ -43,15 +40,12 @@ export default function MovieDetailPage() {
     if (!Number.isFinite(movieId)) return;
     setLoading(true);
     try {
-      const [detail, trendData, community] = await Promise.all([
+      const [detail, trendData] = await Promise.all([
         fetchMovie(movieId),
         fetchMovieTrends(movieId),
-        fetchCommunityReviews(movieId),
       ]);
       setMovie(detail);
       setTrends(trendData);
-      setCommunityReviews(community.reviews);
-      setTmdbReviewsConfigured(community.configured);
     } catch {
       setMovie(null);
     } finally {
@@ -96,6 +90,15 @@ export default function MovieDetailPage() {
       </main>
     );
   }
+
+  const feed = movie.audience_feed ?? [];
+  const showTmdbFeed = movie.reviews.length === 0 && feed.length > 0;
+  const consensusHint =
+    movie.audience_source === "tmdb"
+      ? "Auto-analyzed from top TMDB community reviews"
+      : movie.audience_source === "criticlens"
+        ? "Based on CriticLens submissions"
+        : undefined;
 
   return (
     <main className="flex-1 px-4 py-8 md:px-8 max-w-6xl mx-auto w-full space-y-8">
@@ -165,12 +168,45 @@ export default function MovieDetailPage() {
 
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-sunrise-burgundy/80">
-              CriticLens reviews ({movie.reviews.length})
+              {showTmdbFeed ? "Audience review feed" : `CriticLens reviews (${movie.reviews.length})`}
             </h2>
-            {movie.reviews.length === 0 ? (
+            {showTmdbFeed ? (
+              <>
+                <p className="text-xs text-sunrise-burgundy/50">
+                  Pulled from TMDB and scored with the full CriticLens model on load—no manual
+                  submissions required.
+                </p>
+                {feed.map((review, index) => (
+                  <article
+                    key={`feed-${index}-${review.author}`}
+                    className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/15 p-4"
+                  >
+                    <div className="flex justify-between gap-2 mb-2">
+                      <span className="text-xs font-semibold">{review.author}</span>
+                      <span
+                        className={`text-xs font-bold ${
+                          review.sentiment === "Positive"
+                            ? "text-sunrise-coral"
+                            : "text-sunrise-coral-muted"
+                        }`}
+                      >
+                        {review.sentiment}
+                      </span>
+                    </div>
+                    <p className="text-sm text-sunrise-burgundy/85">{review.text}</p>
+                    <SentimentBreakdown
+                      compact
+                      positive={review.positive_pct}
+                      negative={review.negative_pct}
+                      neutral={review.neutral_pct}
+                    />
+                  </article>
+                ))}
+              </>
+            ) : movie.reviews.length === 0 ? (
               <p className="text-sm text-sunrise-burgundy/45">
-                No reviews posted here yet. Submit yours below, or read community reviews from TMDB
-                (with ML scores) in the next section.
+                No reviews yet. Be the first to post, or check back after TMDB sync if this title
+                has community write-ups.
               </p>
             ) : (
               movie.reviews.map((review) => (
@@ -199,70 +235,36 @@ export default function MovieDetailPage() {
               ))
             )}
           </div>
-
-          {(communityReviews.length > 0 || (movie.reviews.length === 0 && movie.tmdb_id)) && (
-            <div className="space-y-3 pt-2">
-              <h2 className="text-sm font-semibold text-sunrise-burgundy/80">
-                Community reviews from TMDB
-                {communityReviews.length > 0 ? ` (${communityReviews.length})` : ""}
-              </h2>
-              <p className="text-xs text-sunrise-burgundy/50 leading-relaxed">
-                Written on TMDB by other viewers. Each blurb is run through the same sentiment model
-                as CriticLens so you can explore tone even when nobody has posted here yet.
-              </p>
-              {communityReviews.length === 0 ? (
-                <p className="text-sm text-sunrise-burgundy/45">
-                  {tmdbReviewsConfigured
-                    ? "TMDB has no public reviews for this title right now."
-                    : "Connect TMDB in backend settings to pull community reviews."}
-                </p>
-              ) : (
-                communityReviews.map((review, index) => (
-                  <article
-                    key={`tmdb-${index}-${review.author}`}
-                    className="rounded-xl border border-sunrise-burgundy/10 bg-sunrise-peach/15 p-4"
-                  >
-                    <div className="flex justify-between gap-2 mb-2">
-                      <span className="text-xs font-semibold">{review.author}</span>
-                      <span
-                        className={`text-xs font-bold ${
-                          review.sentiment === "Positive"
-                            ? "text-sunrise-coral"
-                            : "text-sunrise-coral-muted"
-                        }`}
-                      >
-                        {review.sentiment}
-                      </span>
-                    </div>
-                    <p className="text-sm text-sunrise-burgundy/85">{review.text}</p>
-                    <SentimentBreakdown
-                      compact
-                      positive={review.positive_pct}
-                      negative={review.negative_pct}
-                      neutral={review.neutral_pct}
-                    />
-                  </article>
-                ))
-              )}
-            </div>
-          )}
         </div>
 
         <div className="lg:col-span-2 space-y-5">
           <div className="rounded-2xl border border-sunrise-burgundy/12 bg-sunrise-surface p-5 shadow-md">
             <h2 className="text-xs uppercase tracking-wider text-sunrise-burgundy/55 mb-2">
-              Overall audience sentiment
+              CriticLens audience consensus
             </h2>
             <p className="text-2xl font-bold text-sunrise-coral">{movie.sentiment.overall_label}</p>
-            <p className="text-xs text-sunrise-burgundy/50 mt-1 mb-4">
+            <p className="text-xs text-sunrise-burgundy/50 mt-1 mb-1">
               {movie.sentiment.review_count} reviews · avg confidence{" "}
               {movie.sentiment.avg_confidence}%
             </p>
+            {consensusHint ? (
+              <p className="text-[11px] text-sunrise-burgundy/45 mb-4">{consensusHint}</p>
+            ) : (
+              <div className="mb-4" />
+            )}
             <SentimentBreakdown
               positive={movie.sentiment.positive_pct}
               negative={movie.sentiment.negative_pct}
               neutral={movie.sentiment.neutral_pct}
             />
+          </div>
+
+          <div className="rounded-2xl border border-sunrise-burgundy/12 bg-sunrise-surface p-5 shadow-md">
+            <h2 className="text-xs uppercase tracking-wider text-sunrise-burgundy/55 mb-3 flex items-center gap-2">
+              <BarChart3 className="w-3.5 h-3.5 text-sunrise-coral" />
+              Aspect scores
+            </h2>
+            <AspectGauges aspects={movie.aspects} compact />
           </div>
 
           <div className="rounded-2xl border border-sunrise-burgundy/12 bg-sunrise-surface p-5 shadow-md">

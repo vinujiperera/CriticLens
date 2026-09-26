@@ -3,16 +3,50 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { BarChart3, Loader2, Search } from "lucide-react";
-import { compareMovies, fetchMovies, type MovieListItem, type MovieSentimentSummary } from "@/lib/api";
+import {
+  BarChart3,
+  Loader2,
+  Search,
+} from "lucide-react";
+import {
+  ResponsiveContainer,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar,
+  Legend,
+  Tooltip,
+} from "recharts";
+import {
+  compareMovies,
+  fetchMovies,
+  type CompareMovieRow,
+  type MovieListItem,
+} from "@/lib/api";
 import { SentimentBreakdown } from "../../components/SentimentBreakdown";
 
-type CompareRow = {
-  id: number;
-  title: string;
-  year: number;
-  sentiment: MovieSentimentSummary;
-};
+const COMPARE_COLORS = ["#E06464", "#2E1B1B", "#EDD0AC"] as const;
+const ASPECT_KEYS = [
+  "Acting & Cast",
+  "Story & Writing",
+  "Visuals & Audio",
+  "Pacing & Direction",
+] as const;
+
+function slugTitle(title: string) {
+  return title.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 24);
+}
+
+function buildRadarData(rows: CompareMovieRow[]) {
+  return ASPECT_KEYS.map((aspect) => {
+    const point: Record<string, string | number> = { aspect };
+    rows.forEach((row) => {
+      point[slugTitle(row.title)] = row.aspects[aspect] ?? 50;
+    });
+    return point;
+  });
+}
 
 function CompareMoviesContent() {
   const searchParams = useSearchParams();
@@ -29,7 +63,7 @@ function CompareMoviesContent() {
   const [catalog, setCatalog] = useState<MovieListItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<number[]>(initialIds.slice(0, 3));
-  const [results, setResults] = useState<CompareRow[]>([]);
+  const [results, setResults] = useState<CompareMovieRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   const loadCatalog = useCallback(async (search?: string) => {
@@ -85,6 +119,10 @@ function CompareMoviesContent() {
     );
   };
 
+  const showRadar = selected.length >= 2 && selected.length <= 3 && results.length >= 2;
+  const radarRows = showRadar ? results.slice(0, selected.length) : [];
+  const radarData = showRadar ? buildRadarData(radarRows) : null;
+
   return (
     <main className="flex-1 px-4 py-8 md:px-8 max-w-6xl mx-auto w-full">
       <div className="mb-8">
@@ -93,8 +131,8 @@ function CompareMoviesContent() {
           Compare audience sentiment
         </h1>
         <p className="text-sm text-sunrise-burgundy/60 mt-1">
-          Search your catalog (including titles imported from TMDB), pick 2–5 movies, then compare
-          positive, negative, and neutral percentages side by side.
+          Search your catalog, pick 2–3 titles for an overlaid aspect radar, or up to 5 for side-by-side
+          sentiment bars. TMDB-backed titles include auto-analyzed scores when local reviews are empty.
         </p>
       </div>
 
@@ -125,6 +163,12 @@ function CompareMoviesContent() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
           {catalog.map((movie) => {
             const checked = selected.includes(movie.id);
+            const reviewLabel =
+              movie.sentiment.review_count > 0
+                ? `${movie.sentiment.review_count} reviews · ${movie.sentiment.overall_label}${
+                    movie.audience_source === "tmdb" ? " (TMDB)" : ""
+                  }`
+                : "No score yet";
             return (
               <div
                 key={movie.id}
@@ -137,7 +181,7 @@ function CompareMoviesContent() {
                 <button type="button" onClick={() => toggle(movie.id)} className="text-left w-full">
                   <p className="font-semibold text-sm">{movie.title}</p>
                   <p className="text-xs text-sunrise-burgundy/50">
-                    {movie.year} · {movie.sentiment.review_count} CriticLens reviews
+                    {movie.year} · {reviewLabel}
                   </p>
                 </button>
                 <Link
@@ -162,6 +206,50 @@ function CompareMoviesContent() {
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
         Compare selected ({selected.length})
       </button>
+
+      {radarData && (
+        <div className="mb-10 rounded-2xl border border-sunrise-burgundy/12 bg-sunrise-surface p-5 shadow-md">
+          <h2 className="text-sm font-semibold text-sunrise-burgundy mb-1">Aspect overlay</h2>
+          <p className="text-xs text-sunrise-burgundy/50 mb-4">
+            Acting, story, visuals, and pacing (0–100). Shown when 2–3 movies are compared.
+          </p>
+          <div className="h-[340px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="72%">
+                <PolarGrid stroke="#e5989b55" />
+                <PolarAngleAxis
+                  dataKey="aspect"
+                  tick={{ fill: "#2D0911", fontSize: 11 }}
+                  tickLine={false}
+                />
+                <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 9 }} axisLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: 12,
+                    border: "1px solid rgba(45,9,17,0.12)",
+                    fontSize: 12,
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {radarRows.map((row, index) => {
+                  const key = slugTitle(row.title);
+                  return (
+                    <Radar
+                      key={row.id}
+                      name={row.title}
+                      dataKey={key}
+                      stroke={COMPARE_COLORS[index]}
+                      fill={COMPARE_COLORS[index]}
+                      fillOpacity={0.22}
+                      strokeWidth={2}
+                    />
+                  );
+                })}
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {results.length > 0 && (
         <div className="grid md:grid-cols-2 gap-5">

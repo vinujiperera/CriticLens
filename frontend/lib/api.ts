@@ -11,6 +11,13 @@ export type MovieSentimentSummary = {
   negative_count?: number;
 };
 
+export type MovieAspectScores = {
+  "Acting & Cast": number;
+  "Story & Writing": number;
+  "Visuals & Audio": number;
+  "Pacing & Direction": number;
+};
+
 export type MovieListItem = {
   id: number;
   tmdb_id?: number | null;
@@ -23,6 +30,7 @@ export type MovieListItem = {
   poster_path?: string | null;
   poster_url?: string | null;
   sentiment: MovieSentimentSummary;
+  audience_source?: "criticlens" | "tmdb" | "none";
 };
 
 export type MovieReview = {
@@ -38,8 +46,23 @@ export type MovieReview = {
   timestamp: string | null;
 };
 
+export type AudienceFeedReview = {
+  author: string;
+  text: string;
+  created_at: string | null;
+  sentiment: string;
+  confidence: number;
+  positive_pct: number;
+  negative_pct: number;
+  neutral_pct: number;
+  aspects: Record<string, number | null>;
+  source: string;
+};
+
 export type MovieDetail = MovieListItem & {
   reviews: MovieReview[];
+  aspects: MovieAspectScores;
+  audience_feed: AudienceFeedReview[];
 };
 
 export type CommunityReview = {
@@ -129,12 +152,19 @@ export async function submitMovieReview(
   return res.json();
 }
 
+export type CompareMovieRow = {
+  id: number;
+  title: string;
+  year: number;
+  poster_url?: string | null;
+  sentiment: MovieSentimentSummary;
+  aspects: MovieAspectScores;
+};
+
 export async function compareMovies(ids: number[]) {
   const res = await fetch(`${API_BASE}/movies/compare?ids=${ids.join(",")}`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error("Compare failed");
-  return res.json() as Promise<
-    { id: number; title: string; year: number; sentiment: MovieSentimentSummary }[]
-  >;
+  return res.json() as Promise<CompareMovieRow[]>;
 }

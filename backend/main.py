@@ -8,6 +8,7 @@ import re
 import math
 from datetime import datetime
 from collections import defaultdict
+from time import time
 
 try:
     from dotenv import load_dotenv
@@ -385,6 +386,143 @@ def summarize_movie_reviews(reviews: List[MovieReview]) -> Dict[str, Any]:
     }
 
 
+ASPECT_KEYS = list(ASPECT_LEXICON.keys())
+_TMDB_AUDIENCE_CACHE: Dict[int, Dict[str, Any]] = {}
+_TMDB_CACHE_TTL_SEC = 3600
+
+
+def neutral_aspects() -> Dict[str, float]:
+    return {key: 50.0 for key in ASPECT_KEYS}
+
+
+def summarize_inference_batch(analyzed: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not analyzed:
+        return summarize_movie_reviews([])
+
+    pos = sum(1 for item in analyzed if item.get("sentiment") == "Positive")
+    neg = len(analyzed) - pos
+    avg_pos = sum(item["positive_pct"] for item in analyzed) / len(analyzed)
+    avg_neg = sum(item["negative_pct"] for item in analyzed) / len(analyzed)
+    avg_neu = sum(item["neutral_pct"] for item in analyzed) / len(analyzed)
+    avg_conf = sum(item["confidence"] for item in analyzed) / len(analyzed)
+
+    if pos > neg:
+        overall = "Positive"
+    elif neg > pos:
+        overall = "Negative"
+    else:
+        overall = "Mixed"
+
+    return {
+        "review_count": len(analyzed),
+        "overall_label": overall,
+        "positive_pct": round(avg_pos, 2),
+        "negative_pct": round(avg_neg, 2),
+        "neutral_pct": round(avg_neu, 2),
+        "avg_confidence": round(avg_conf, 2),
+        "positive_count": pos,
+        "negative_count": neg,
+    }
+
+
+def aspects_from_texts(texts: List[str]) -> Dict[str, float]:
+    if not texts:
+        return neutral_aspects()
+
+    per_review = [analyze_aspects(text) for text in texts]
+    merged: Dict[str, float] = {}
+    for key in ASPECT_KEYS:
+        values = [row[key] for row in per_review if row.get(key) is not None]
+        if values:
+            merged[key] = round(sum(values) / len(values), 1)
+        else:
+            merged[key] = 50.0
+    return merged
+
+
+def analyze_review_full(raw_text: str) -> Dict[str, Any]:
+    scores = run_sentiment_inference(raw_text)
+    aspects = analyze_aspects(raw_text)
+    return {
+        **scores,
+        "text": raw_text,
+        "aspects": aspects,
+    }
+
+
+def fetch_tmdb_analyzed_reviews(tmdb_id: int, limit: int = 5) -> List[Dict[str, Any]]:
+    if not tmdb_client.is_configured():
+        return []
+
+    try:
+        data = tmdb_client.get_movie_reviews(int(tmdb_id))
+    except TMDBError:
+        return []
+
+    analyzed: List[Dict[str, Any]] = []
+    for item in (data.get("results") or []):
+        if len(analyzed) >= limit:
+            break
+        text = (item.get("content") or "").strip()
+        if len(text) < 3:
+            continue
+        author_details = item.get("author_details") or {}
+        author = author_details.get("username") or item.get("author") or "TMDB user"
+        full = analyze_review_full(text)
+        analyzed.append(
+            {
+                "author": author,
+                "text": text,
+                "created_at": item.get("created_at"),
+                "sentiment": full["sentiment"],
+                "confidence": full["confidence"],
+                "positive_pct": full["positive_pct"],
+                "negative_pct": full["negative_pct"],
+                "neutral_pct": full["neutral_pct"],
+                "vader_compound": full["vader_compound"],
+                "aspects": full["aspects"],
+                "source": "tmdb",
+            }
+        )
+    return analyzed
+
+
+def tmdb_audience_package(movie: Movie, limit: int = 5) -> Optional[Dict[str, Any]]:
+    if not movie.tmdb_id:
+        return None
+
+    cached = _TMDB_AUDIENCE_CACHE.get(movie.id)
+    if cached and time() - cached["ts"] < _TMDB_CACHE_TTL_SEC:
+        return cached["data"]
+
+    reviews = fetch_tmdb_analyzed_reviews(int(movie.tmdb_id), limit=limit)
+    if not reviews:
+        return None
+
+    payload = {
+        "reviews": reviews,
+        "sentiment": summarize_inference_batch(reviews),
+        "aspects": aspects_from_texts([r["text"] for r in reviews]),
+    }
+    _TMDB_AUDIENCE_CACHE[movie.id] = {"ts": time(), "data": payload}
+    return payload
+
+
+def movie_aspects_and_sentiment(movie: Movie, db: Session) -> tuple[Dict[str, Any], Dict[str, float], str]:
+    reviews = db.query(MovieReview).filter(MovieReview.movie_id == movie.id).all()
+    if reviews:
+        texts = [r.text for r in reviews]
+        return summarize_movie_reviews(reviews), aspects_from_texts(texts), "criticlens"
+
+    tmdb_pkg = tmdb_audience_package(movie, limit=5)
+    if tmdb_pkg:
+        sentiment = dict(tmdb_pkg["sentiment"])
+        sentiment["audience_source"] = "tmdb"
+        return sentiment, tmdb_pkg["aspects"], "tmdb"
+
+    return summarize_movie_reviews([]), neutral_aspects(), "none"
+
+
 def import_movie_from_tmdb(db: Session, tmdb_id: int) -> Movie:
     existing = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
     if existing:
@@ -432,8 +570,9 @@ def seed_tmdb_popular(db: Session, limit: int = 12) -> None:
 
 
 def movie_to_dict(movie: Movie, db: Session) -> Dict[str, Any]:
-    reviews = db.query(MovieReview).filter(MovieReview.movie_id == movie.id).all()
-    summary = summarize_movie_reviews(reviews)
+    summary, _, source = movie_aspects_and_sentiment(movie, db)
+    if source == "tmdb":
+        summary = {k: v for k, v in summary.items() if k != "audience_source"}
     return {
         "id": movie.id,
         "tmdb_id": movie.tmdb_id,
@@ -446,6 +585,7 @@ def movie_to_dict(movie: Movie, db: Session) -> Dict[str, Any]:
         "poster_path": movie.poster_path,
         "poster_url": tmdb_poster_url(movie.poster_path),
         "sentiment": summary,
+        "audience_source": source,
     }
 
 
@@ -624,14 +764,15 @@ def compare_movies(ids: str, db: Session = Depends(get_db)):
         movie = db.query(Movie).filter(Movie.id == mid).first()
         if not movie:
             raise HTTPException(status_code=404, detail=f"Movie {mid} not found.")
-        reviews = db.query(MovieReview).filter(MovieReview.movie_id == mid).all()
+        sentiment, aspects, _ = movie_aspects_and_sentiment(movie, db)
         comparisons.append(
             {
                 "id": movie.id,
                 "title": movie.title,
                 "year": movie.year,
                 "poster_url": tmdb_poster_url(movie.poster_path),
-                "sentiment": summarize_movie_reviews(reviews),
+                "sentiment": {k: v for k, v in sentiment.items() if k != "audience_source"},
+                "aspects": aspects,
             }
         )
     return comparisons
@@ -649,23 +790,31 @@ def get_movie(movie_id: int, db: Session = Depends(get_db)):
         .order_by(MovieReview.timestamp.desc())
         .all()
     )
+    sentiment, aspects, audience_source = movie_aspects_and_sentiment(movie, db)
     payload = movie_to_dict(movie, db)
-    payload["sentiment"] = summarize_movie_reviews(reviews)
+    payload["sentiment"] = {k: v for k, v in sentiment.items() if k != "audience_source"}
+    payload["aspects"] = aspects
+    payload["audience_source"] = audience_source
     payload["reviews"] = [
-            {
-                "id": r.id,
-                "author_name": r.author_name,
-                "text": r.text,
-                "sentiment": r.sentiment,
-                "confidence": r.confidence,
-                "positive_pct": r.positive_pct,
-                "negative_pct": r.negative_pct,
-                "neutral_pct": r.neutral_pct,
-                "vader_compound": r.vader_compound,
-                "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-            }
-            for r in reviews
-        ]
+        {
+            "id": r.id,
+            "author_name": r.author_name,
+            "text": r.text,
+            "sentiment": r.sentiment,
+            "confidence": r.confidence,
+            "positive_pct": r.positive_pct,
+            "negative_pct": r.negative_pct,
+            "neutral_pct": r.neutral_pct,
+            "vader_compound": r.vader_compound,
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+        }
+        for r in reviews
+    ]
+    if not reviews and audience_source == "tmdb":
+        tmdb_pkg = tmdb_audience_package(movie, limit=5)
+        payload["audience_feed"] = tmdb_pkg["reviews"] if tmdb_pkg else []
+    else:
+        payload["audience_feed"] = []
     return payload
 
 
@@ -678,35 +827,25 @@ def get_community_reviews(movie_id: int, db: Session = Depends(get_db)):
 
     configured = tmdb_client.is_configured()
     if not configured or not movie.tmdb_id:
-        return {"reviews": [], "configured": configured, "source": "tmdb"}
+        return {
+            "reviews": [],
+            "configured": configured,
+            "source": "tmdb",
+            "sentiment": summarize_movie_reviews([]),
+            "aspects": neutral_aspects(),
+        }
 
-    try:
-        data = tmdb_client.get_movie_reviews(int(movie.tmdb_id))
-    except TMDBError:
-        return {"reviews": [], "configured": True, "source": "tmdb"}
+    pkg = tmdb_audience_package(movie, limit=5)
+    if not pkg:
+        return {"reviews": [], "configured": True, "source": "tmdb", "sentiment": summarize_movie_reviews([]), "aspects": neutral_aspects()}
 
-    reviews_out = []
-    for item in (data.get("results") or [])[:8]:
-        text = (item.get("content") or "").strip()
-        if len(text) < 3:
-            continue
-        author_details = item.get("author_details") or {}
-        author = author_details.get("username") or item.get("author") or "TMDB user"
-        scores = run_sentiment_inference(text)
-        reviews_out.append(
-            {
-                "author": author,
-                "text": text,
-                "created_at": item.get("created_at"),
-                "sentiment": scores["sentiment"],
-                "confidence": scores["confidence"],
-                "positive_pct": scores["positive_pct"],
-                "negative_pct": scores["negative_pct"],
-                "neutral_pct": scores["neutral_pct"],
-                "source": "tmdb",
-            }
-        )
-    return {"reviews": reviews_out, "configured": True, "source": "tmdb"}
+    return {
+        "reviews": pkg["reviews"],
+        "sentiment": pkg["sentiment"],
+        "aspects": pkg["aspects"],
+        "configured": True,
+        "source": "tmdb",
+    }
 
 
 @app.get("/movies/{movie_id}/sentiment/trends")

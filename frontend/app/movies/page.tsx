@@ -127,11 +127,12 @@ export default function MoviesPage() {
                     {movie.year} · {movie.director}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-2 text-xs flex-wrap">
                   <Star className="w-3.5 h-3.5 text-sunrise-coral shrink-0" />
                   <span className="font-semibold">{movie.sentiment.overall_label}</span>
                   <span className="text-sunrise-burgundy/45">
-                    ({movie.sentiment.review_count} reviews)
+                    ({movie.sentiment.review_count} reviews
+                    {movie.audience_source === "tmdb" ? ", TMDB" : ""})
                   </span>
                 </div>
                 {movie.sentiment.review_count > 0 && (
