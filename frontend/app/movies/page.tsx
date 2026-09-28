@@ -3,22 +3,32 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, Search, Star } from "lucide-react";
-import { fetchMovies, fetchTmdbStatus, syncPopularMovies, type MovieListItem } from "@/lib/api";
+import {
+  fetchMovieGenres,
+  fetchMovies,
+  fetchTmdbStatus,
+  syncPopularMovies,
+  type MovieListItem,
+} from "@/lib/api";
+import { GenreFilter } from "../components/GenreFilter";
 import { MoviePoster } from "../components/MoviePoster";
 import { SentimentBreakdown, sentimentTextClass } from "../components/SentimentBreakdown";
 
 export default function MoviesPage() {
   const [query, setQuery] = useState("");
+  const [genre, setGenre] = useState<string | null>(null);
+  const [genres, setGenres] = useState<string[]>([]);
+  const [genresLoading, setGenresLoading] = useState(true);
   const [movies, setMovies] = useState<MovieListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [tmdbReady, setTmdbReady] = useState<boolean | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  const loadMovies = useCallback(async (search?: string) => {
+  const loadMovies = useCallback(async (search?: string, genreFilter?: string | null) => {
     setLoading(true);
     try {
-      const data = await fetchMovies(search);
+      const data = await fetchMovies({ query: search, genre: genreFilter });
       setMovies(data);
     } catch {
       setMovies([]);
@@ -29,21 +39,24 @@ export default function MoviesPage() {
 
   useEffect(() => {
     fetchTmdbStatus().then((s) => setTmdbReady(s.configured));
+    fetchMovieGenres()
+      .then((data) => setGenres(data.genres))
+      .finally(() => setGenresLoading(false));
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      loadMovies(query);
+      loadMovies(query, genre);
     }, query.trim() ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [query, loadMovies]);
+  }, [query, genre, loadMovies]);
 
   const handleSyncPopular = async () => {
     setSyncing(true);
     setSyncError(null);
     try {
       await syncPopularMovies();
-      await loadMovies(query);
+      await loadMovies(query, genre);
     } catch (e) {
       setSyncError(e instanceof Error ? e.message : "Sync failed");
     } finally {
@@ -96,13 +109,25 @@ export default function MoviesPage() {
         />
       </div>
 
+      <GenreFilter genres={genres} value={genre} onChange={setGenre} loading={genresLoading} />
+
+      {genre && !loading && movies.length > 0 && (
+        <p className="text-xs text-sunrise-burgundy/50 -mt-3 mb-4">
+          {movies.length} {genre} title{movies.length === 1 ? "" : "s"} in catalog
+          {tmdbReady ? " · popular picks auto-imported from TMDB" : ""}
+        </p>
+      )}
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-sunrise-burgundy/50">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading catalog…
         </div>
       ) : movies.length === 0 ? (
         <p className="text-sm text-sunrise-burgundy/50">
-          No movies yet. {tmdbReady ? "Try “Load trending from TMDB” or search for a title." : "Configure TMDB to import films."}
+          No movies match{genre ? ` “${genre}”` : ""}.{" "}
+          {tmdbReady
+            ? "Pick another genre, search for a title, or load trending from TMDB."
+            : "Configure TMDB to import films."}
         </p>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">

@@ -20,10 +20,12 @@ import {
 } from "recharts";
 import {
   compareMovies,
+  fetchMovieGenres,
   fetchMovies,
   type CompareMovieRow,
   type MovieListItem,
 } from "@/lib/api";
+import { GenreFilter } from "../../components/GenreFilter";
 import { SentimentBreakdown, sentimentTextClass } from "../../components/SentimentBreakdown";
 
 const COMPARE_COLORS = ["#E06464", "#2E1B1B", "#EDD0AC"] as const;
@@ -60,16 +62,19 @@ function CompareMoviesContent() {
   }, [searchParams]);
 
   const [query, setQuery] = useState("");
+  const [genre, setGenre] = useState<string | null>(null);
+  const [genres, setGenres] = useState<string[]>([]);
+  const [genresLoading, setGenresLoading] = useState(true);
   const [catalog, setCatalog] = useState<MovieListItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<number[]>(initialIds.slice(0, 3));
   const [results, setResults] = useState<CompareMovieRow[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const loadCatalog = useCallback(async (search?: string) => {
+  const loadCatalog = useCallback(async (search?: string, genreFilter?: string | null) => {
     setCatalogLoading(true);
     try {
-      const data = await fetchMovies(search);
+      const data = await fetchMovies({ query: search, genre: genreFilter });
       setCatalog(data);
     } catch {
       setCatalog([]);
@@ -79,11 +84,17 @@ function CompareMoviesContent() {
   }, []);
 
   useEffect(() => {
+    fetchMovieGenres()
+      .then((data) => setGenres(data.genres))
+      .finally(() => setGenresLoading(false));
+  }, []);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
-      loadCatalog(query);
+      loadCatalog(query, genre);
     }, query.trim() ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [query, loadCatalog]);
+  }, [query, genre, loadCatalog]);
 
   useEffect(() => {
     if (initialIds.length >= 2) {
@@ -146,6 +157,14 @@ function CompareMoviesContent() {
           className="w-full pl-10 pr-4 py-3 rounded-xl border border-sunrise-burgundy/15 bg-sunrise-surface text-sm focus:outline-none focus:ring-2 focus:ring-sunrise-coral/40"
         />
       </div>
+
+      <GenreFilter genres={genres} value={genre} onChange={setGenre} loading={genresLoading} />
+
+      {genre && !catalogLoading && catalog.length > 0 && (
+        <p className="text-xs text-sunrise-burgundy/50 -mt-3 mb-4">
+          {catalog.length} {genre} titles ready to compare
+        </p>
+      )}
 
       {catalogLoading ? (
         <div className="flex items-center gap-2 text-sm text-sunrise-burgundy/50 mb-6">

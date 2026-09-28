@@ -104,10 +104,23 @@ export async function syncPopularMovies(): Promise<{ tmdb_movies_in_catalog: num
   return res.json();
 }
 
-export async function fetchMovies(query?: string): Promise<MovieListItem[]> {
-  const url = query?.trim()
-    ? `${API_BASE}/movies?q=${encodeURIComponent(query.trim())}`
-    : `${API_BASE}/movies`;
+export type MovieBrowseFilters = {
+  query?: string;
+  genre?: string | null;
+};
+
+export async function fetchMovieGenres(): Promise<{ genres: string[]; in_catalog: string[] }> {
+  const res = await fetch(`${API_BASE}/movies/genres`, { cache: "no-store" });
+  if (!res.ok) return { genres: [], in_catalog: [] };
+  return res.json();
+}
+
+export async function fetchMovies(filters?: MovieBrowseFilters): Promise<MovieListItem[]> {
+  const params = new URLSearchParams();
+  if (filters?.query?.trim()) params.set("q", filters.query.trim());
+  if (filters?.genre?.trim()) params.set("genre", filters.genre.trim());
+  const qs = params.toString();
+  const url = qs ? `${API_BASE}/movies?${qs}` : `${API_BASE}/movies`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load movies");
   return res.json();

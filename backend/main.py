@@ -593,18 +593,36 @@ def movie_aspects_and_sentiment(movie: Movie, db: Session) -> tuple[Dict[str, An
     return summarize_movie_reviews([]), neutral_aspects(), "none"
 
 
-def import_movie_from_tmdb(db: Session, tmdb_id: int) -> Movie:
+def _genre_for_shelf(details: Dict[str, Any], shelf_genre: Optional[str]) -> str:
+    if not shelf_genre or not shelf_genre.strip():
+        return details["genre"]
+    shelf = shelf_genre.strip()
+    for name in details.get("genres") or []:
+        if name.lower() == shelf.lower():
+            return name
+    return shelf
+
+
+def import_movie_from_tmdb(db: Session, tmdb_id: int, shelf_genre: Optional[str] = None) -> Movie:
     existing = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
+    details = tmdb_client.normalize_movie_details(tmdb_client.get_movie(tmdb_id))
+    genre_value = _genre_for_shelf(details, shelf_genre)
+
     if existing:
+        if shelf_genre:
+            existing.genre = genre_value
+            if details.get("poster_path"):
+                existing.poster_path = details["poster_path"]
+            db.commit()
+            db.refresh(existing)
         return existing
 
-    details = tmdb_client.normalize_movie_details(tmdb_client.get_movie(tmdb_id))
     movie = Movie(
         tmdb_id=details["tmdb_id"],
         title=details["title"],
         year=details["year"] or 2000,
         director=details["director"],
-        genre=details["genre"],
+        genre=genre_value,
         synopsis=details["synopsis"],
         poster_path=details["poster_path"],
         poster_accent="coral",
@@ -625,6 +643,38 @@ def sync_tmdb_search(db: Session, query: str, limit: int = 8) -> None:
                 import_movie_from_tmdb(db, int(tmdb_id))
     except TMDBError:
         pass
+
+
+GENRE_CATALOG_TARGET = 48
+GENRE_SYNC_IMPORT_LIMIT = 72
+
+
+def sync_tmdb_genre(db: Session, genre: str, limit: int = GENRE_SYNC_IMPORT_LIMIT) -> int:
+    """Import popular TMDB titles for a genre shelf. Returns count attempted."""
+    if not tmdb_client.is_configured() or not genre.strip():
+        return 0
+    imported = 0
+    try:
+        shelf = genre.strip()
+        for item in tmdb_client.discover_genre_results(shelf, limit=limit):
+            tmdb_id = item.get("id")
+            if tmdb_id:
+                import_movie_from_tmdb(db, int(tmdb_id), shelf_genre=shelf)
+                imported += 1
+    except TMDBError:
+        pass
+    return imported
+
+
+def ensure_genre_catalog(db: Session, genre: str) -> None:
+    """Top up thin genre shelves so browse/compare never looks empty."""
+    shelf = genre.strip()
+    if not shelf or not tmdb_client.is_configured():
+        return
+    count = db.query(Movie).filter(Movie.genre.ilike(shelf)).count()
+    if count >= GENRE_CATALOG_TARGET:
+        return
+    sync_tmdb_genre(db, shelf, limit=GENRE_SYNC_IMPORT_LIMIT)
 
 
 def seed_tmdb_popular(db: Session, limit: int = 12) -> None:
@@ -802,10 +852,28 @@ def import_tmdb_movie(tmdb_id: int, db: Session = Depends(get_db)):
     return movie_to_dict(movie, db)
 
 
+@app.get("/movies/genres")
+def list_movie_genres(db: Session = Depends(get_db)):
+    catalog = [
+        row[0]
+        for row in db.query(Movie.genre).distinct().order_by(Movie.genre.asc()).all()
+        if row[0]
+    ]
+    tmdb_genres = tmdb_client.standard_genre_names() if tmdb_client.is_configured() else []
+    merged = sorted(set(catalog + tmdb_genres), key=str.lower)
+    return {"genres": merged, "in_catalog": catalog}
+
+
 @app.get("/movies")
-def search_movies(q: Optional[str] = None, db: Session = Depends(get_db)):
+def search_movies(
+    q: Optional[str] = None,
+    genre: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     if q and q.strip():
         sync_tmdb_search(db, q.strip(), limit=8)
+    if genre and genre.strip() and not q:
+        ensure_genre_catalog(db, genre.strip())
 
     query = db.query(Movie)
     if q:
@@ -815,6 +883,9 @@ def search_movies(q: Optional[str] = None, db: Session = Depends(get_db)):
             | (Movie.director.ilike(like))
             | (Movie.genre.ilike(like))
         )
+    if genre and genre.strip():
+        genre_like = genre.strip()
+        query = query.filter(Movie.genre.ilike(genre_like))
     movies = query.order_by(Movie.title.asc()).all()
     return [movie_to_dict(movie, db) for movie in movies]
 

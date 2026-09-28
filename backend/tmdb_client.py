@@ -122,12 +122,18 @@ def extract_year(details: Dict[str, Any]) -> int:
 
 def normalize_movie_details(details: Dict[str, Any]) -> Dict[str, Any]:
     credits = details.get("credits") or {}
+    genre_names = [
+        (g.get("name") or "").strip()
+        for g in (details.get("genres") or [])
+        if (g.get("name") or "").strip()
+    ]
     return {
         "tmdb_id": details["id"],
         "title": details.get("title") or "Untitled",
         "year": extract_year(details),
         "director": extract_director(credits),
-        "genre": extract_genre(details),
+        "genre": genre_names[0] if genre_names else extract_genre(details),
+        "genres": genre_names,
         "synopsis": (details.get("overview") or "No synopsis available on TMDB.").strip(),
         "poster_path": details.get("poster_path"),
     }
@@ -141,3 +147,73 @@ def popular_results(limit: int = 12) -> List[Dict[str, Any]]:
 def search_results(query: str, limit: int = 8) -> List[Dict[str, Any]]:
     data = search_movies(query, page=1)
     return list(data.get("results") or [])[:limit]
+
+
+_GENRE_NAME_TO_ID: Dict[str, int] = {}
+
+
+def movie_genre_list() -> Dict[str, Any]:
+    return _request("/genre/movie/list", {})
+
+
+def resolve_genre_id(genre_name: str) -> Optional[int]:
+    global _GENRE_NAME_TO_ID
+    if not _GENRE_NAME_TO_ID:
+        data = movie_genre_list()
+        for item in data.get("genres") or []:
+            name = (item.get("name") or "").strip()
+            gid = item.get("id")
+            if name and gid is not None:
+                _GENRE_NAME_TO_ID[name.lower()] = int(gid)
+
+    key = genre_name.strip().lower()
+    if key in _GENRE_NAME_TO_ID:
+        return _GENRE_NAME_TO_ID[key]
+    for name, gid in _GENRE_NAME_TO_ID.items():
+        if name.startswith(key) or key.startswith(name):
+            return gid
+    return None
+
+
+def discover_movies_by_genre(genre_id: int, page: int = 1) -> Dict[str, Any]:
+    return _request(
+        "/discover/movie",
+        {
+            "with_genres": str(genre_id),
+            "sort_by": "popularity.desc",
+            "page": page,
+            "include_adult": "false",
+        },
+    )
+
+
+def discover_genre_results(genre_name: str, limit: int = 60) -> List[Dict[str, Any]]:
+    genre_id = resolve_genre_id(genre_name)
+    if genre_id is None:
+        return []
+
+    collected: List[Dict[str, Any]] = []
+    page = 1
+    max_pages = 5
+    while len(collected) < limit and page <= max_pages:
+        data = discover_movies_by_genre(genre_id, page=page)
+        batch = list(data.get("results") or [])
+        if not batch:
+            break
+        collected.extend(batch)
+        total_pages = int(data.get("total_pages") or page)
+        if page >= total_pages:
+            break
+        page += 1
+    return collected[:limit]
+
+
+def standard_genre_names() -> List[str]:
+    try:
+        data = movie_genre_list()
+        return sorted(
+            [(g.get("name") or "").strip() for g in data.get("genres") or [] if g.get("name")],
+            key=str.lower,
+        )
+    except TMDBError:
+        return []
