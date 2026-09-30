@@ -43,11 +43,23 @@ export function SiteFooter() {
           </div>
 
           <div className="space-y-3 sm:col-span-2 lg:col-span-1">
-            <p className="text-sm font-semibold text-white uppercase tracking-wide">Stack</p>
-            <ul className="text-sm text-sunrise-cream/80 space-y-1.5">
-              <li>Next.js frontend</li>
-              <li>FastAPI + SQLite backend</li>
-              <li>Scikit-learn classifier</li>
+            <p className="text-sm font-semibold text-white uppercase tracking-wide">Features</p>
+            <ul className="space-y-2 text-sm">
+              <li>
+                <Link
+                  href="/movies/compare"
+                  className="text-sunrise-cream/80 hover:text-sunrise-coral transition"
+                >
+                  Compare audience sentiment
+                </Link>
+              </li>
+              <li>
+                <Link href="/movies" className="text-sunrise-cream/80 hover:text-sunrise-coral transition">
+                  Browse by genre
+                </Link>
+              </li>
+              <li className="text-sunrise-cream/80">Aspect scores & review breakdowns</li>
+              <li className="text-sunrise-cream/80">Exportable film & review PDF reports</li>
             </ul>
           </div>
         </div>

@@ -25,8 +25,7 @@ export default function HomePage() {
           </h1>
 
           <p className="text-lg sm:text-xl text-sunrise-burgundy/85 max-w-2xl mx-auto font-medium">
-            Decode film, book, and media reviews with clear scores, mood trends, and the words that
-            matter most.
+            Explore reviews. Reveal the sentiment.
           </p>
 
           <p className="text-sm sm:text-base text-sunrise-burgundy/65 max-w-xl mx-auto">
