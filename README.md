@@ -16,9 +16,46 @@ CriticLens is a full-stack app for **movie review sentiment**: browse a TMDB-bac
 
 ```
 ML/
-├── backend/          # FastAPI API, SQLite, ML model, TMDB client
-├── frontend/         # Next.js 16 app
-└── notebooks/        # Training / exploration (optional)
+├── README.md
+├── .gitignore
+│
+├── backend/
+│   ├── main.py                 # FastAPI app, ML inference, movie/review routes
+│   ├── tmdb_client.py          # TMDB API (search, genres, discover, reviews)
+│   ├── database.py             # DB helpers (if used alongside main)
+│   ├── requirements.txt
+│   ├── .env.example            # Copy to .env with TMDB_API_KEY
+│   ├── sentiment_history.db    # SQLite (movies, reviews, lab history; created at runtime)
+│   └── models/
+│       └── sentiment_model.pkl # Trained scikit-learn pipeline (required to start API)
+│
+├── frontend/
+│   ├── app/
+│   │   ├── page.tsx            # Landing page
+│   │   ├── layout.tsx
+│   │   ├── globals.css
+│   │   ├── dashboard/          # Review analyzer (Lab)
+│   │   │   ├── layout.tsx
+│   │   │   └── page.tsx
+│   │   ├── movies/
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx        # Browse & genre filter
+│   │   │   ├── compare/
+│   │   │   │   └── page.tsx    # Compare + radar chart
+│   │   │   └── [id]/
+│   │   │       └── page.tsx    # Movie detail, reviews, PDF export
+│   │   └── components/         # UI (headers, posters, sentiment, dossier, etc.)
+│   ├── lib/
+│   │   ├── api.ts              # Backend client
+│   │   ├── pdfReports.ts       # PDF generation (dossier & review reports)
+│   │   └── exportFilmDossier.ts # PNG export helper
+│   ├── public/
+│   │   └── criticlens-logo.png
+│   ├── package.json
+│   └── next.config.ts          # TMDB image domains
+│
+└── notebooks/
+    └── sentiment_analysis.ipynb  # Model training / EDA
 ```
 
 ## Prerequisites

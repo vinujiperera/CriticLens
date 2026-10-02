@@ -17,7 +17,7 @@ CriticLens is an end-to-end NLP platform that turns raw movie reviews into actio
 
 ---
 
-## 🌟 Key Features (The 4 Pillars of Intelligence)
+##  Key Features (The 4 Pillars of Intelligence)
 
 - **Pillar 1: Aspect-Based Polarity Breakdown.** Evaluates domain-specific components independently (*Acting & Cast*, *Story & Writing*, *Visuals & Audio*, and *Pacing & Direction*) using targeted lexicon matching and VADER polarity scoring.
 - **Pillar 2: Narrative Sentiment Trajectory.** Tracks emotional shifts across the review, plotting sentence-by-sentence polarity to highlight narrative turning points.
@@ -40,7 +40,7 @@ CriticLens is an end-to-end NLP platform that turns raw movie reviews into actio
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 ```text
 [ Next.js Frontend (React / TypeScript) ]
@@ -60,7 +60,7 @@ CriticLens is an end-to-end NLP platform that turns raw movie reviews into actio
 
 ---
 
-## 🧠 How the Analysis Works
+## How the Analysis Works
 
 Each submitted review flows through four parallel analysis engines, and the combined results are returned to the dashboard and saved to history.
 
@@ -111,9 +111,9 @@ sequenceDiagram
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
-> Adjust this to match your actual repository layout.
+
 
 ```text
 criticlens/
@@ -138,7 +138,7 @@ criticlens/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
