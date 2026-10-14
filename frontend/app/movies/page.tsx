@@ -124,10 +124,13 @@ export default function MoviesPage() {
         </div>
       ) : movies.length === 0 ? (
         <p className="text-sm text-sunrise-burgundy/50">
-          No movies match{genre ? ` “${genre}”` : ""}.{" "}
-          {tmdbReady
-            ? "Pick another genre, search for a title, or load trending from TMDB."
-            : "Configure TMDB to import films."}
+          {query.trim()
+            ? "No matching movies found."
+            : `No movies match${genre ? ` “${genre}”` : ""}. ${
+                tmdbReady
+                  ? "Pick another genre, search for a title, or load trending from TMDB."
+                  : "Configure TMDB to import films."
+              }`}
         </p>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
