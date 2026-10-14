@@ -27,8 +27,10 @@ import { downloadDossierPng } from "@/lib/exportFilmDossier";
 import { downloadMovieDossierPdf, downloadReviewReportPdf } from "@/lib/pdfReports";
 import { AspectGauges } from "../../components/AspectGauges";
 import { FilmIntelligenceDossier } from "../../components/FilmIntelligenceDossier";
-import { MoviePoster } from "../../components/MoviePoster";
+import { MovieAboutSection } from "../../components/MovieAboutSection";
+import { MovieDetailHero } from "../../components/MovieDetailHero";
 import { SentimentBreakdown, sentimentTextClass } from "../../components/SentimentBreakdown";
+import type { MoviePageDetails } from "@/lib/api";
 
 export default function MovieDetailPage() {
   const params = useParams();
@@ -116,6 +118,18 @@ export default function MovieDetailPage() {
 
   const dossierFilenameBase = movie.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
 
+  const pageDetails: MoviePageDetails = movie.details ?? {
+    tagline: null,
+    runtime_minutes: null,
+    genres: movie.genre ? [movie.genre] : [],
+    cast: [],
+    backdrop_url: null,
+    vote_average: null,
+    release_date: null,
+  };
+  const genreLabel =
+    pageDetails.genres.length > 0 ? pageDetails.genres.join(" · ") : movie.genre;
+
   const handleExport = async (format: "pdf" | "png") => {
     if (!dossier) return;
     setExporting(format);
@@ -178,30 +192,28 @@ export default function MovieDetailPage() {
         <ArrowLeft className="w-4 h-4" /> All movies
       </Link>
 
-      <div className="rounded-2xl overflow-hidden border border-sunrise-burgundy/12 shadow-lg">
-        <MoviePoster
-          posterUrl={movie.poster_url}
-          posterAccent={movie.poster_accent}
-          title={movie.title}
-          genre={movie.genre}
-          className="h-48 sm:h-64 md:h-72"
-        />
-      </div>
+      <MovieDetailHero
+        title={movie.title}
+        genre={movie.genre}
+        posterUrl={movie.poster_url}
+        posterAccent={movie.poster_accent}
+        backdropUrl={pageDetails.backdrop_url}
+      />
 
       <div className="grid lg:grid-cols-5 gap-8">
         <div className="lg:col-span-3 space-y-4">
           <div>
             <p className="text-xs uppercase tracking-wider text-sunrise-coral font-semibold">
-              {movie.genre} · {movie.year}
+              {genreLabel} · {movie.year}
               {movie.tmdb_id ? (
                 <span className="ml-2 text-sunrise-burgundy/40 font-normal normal-case">
                   · TMDB #{movie.tmdb_id}
                 </span>
               ) : null}
             </p>
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mt-2">
               <div>
-                <h1 className="text-3xl font-bold text-sunrise-burgundy mt-1">{movie.title}</h1>
+                <h1 className="text-2xl sm:text-3xl font-bold text-sunrise-burgundy">{movie.title}</h1>
                 <p className="text-sm text-sunrise-burgundy/55 mt-1">Directed by {movie.director}</p>
               </div>
               <div className="flex flex-wrap gap-2 shrink-0">
@@ -231,7 +243,13 @@ export default function MovieDetailPage() {
             </div>
             {exportError ? <p className="text-xs text-sentiment-negative mt-2">{exportError}</p> : null}
           </div>
-          <p className="text-sm leading-relaxed text-sunrise-burgundy/80">{movie.synopsis}</p>
+
+          <MovieAboutSection
+            synopsis={movie.synopsis}
+            director={movie.director}
+            year={movie.year}
+            details={pageDetails}
+          />
 
           <div className="rounded-2xl border border-sunrise-burgundy/12 bg-sunrise-surface p-5 shadow-md">
             <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">

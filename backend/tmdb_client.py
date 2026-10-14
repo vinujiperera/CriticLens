@@ -13,6 +13,10 @@ from urllib.request import Request, urlopen
 TMDB_BASE = "https://api.themoviedb.org/3"
 POSTER_SIZE = "w500"
 POSTER_BASE = f"https://image.tmdb.org/t/p/{POSTER_SIZE}"
+BACKDROP_SIZE = "w1280"
+BACKDROP_BASE = f"https://image.tmdb.org/t/p/{BACKDROP_SIZE}"
+PROFILE_SIZE = "w185"
+PROFILE_BASE = f"https://image.tmdb.org/t/p/{PROFILE_SIZE}"
 _ENV_LOADED = False
 
 
@@ -62,6 +66,18 @@ def poster_url(poster_path: Optional[str]) -> Optional[str]:
     if not poster_path:
         return None
     return f"{POSTER_BASE}{poster_path}"
+
+
+def backdrop_url(backdrop_path: Optional[str]) -> Optional[str]:
+    if not backdrop_path:
+        return None
+    return f"{BACKDROP_BASE}{backdrop_path}"
+
+
+def profile_url(profile_path: Optional[str]) -> Optional[str]:
+    if not profile_path:
+        return None
+    return f"{PROFILE_BASE}{profile_path}"
 
 
 def _request(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -120,6 +136,22 @@ def extract_year(details: Dict[str, Any]) -> int:
     return 0
 
 
+def extract_cast(credits: Dict[str, Any], limit: int = 12) -> List[Dict[str, Any]]:
+    cast_out: List[Dict[str, Any]] = []
+    for person in (credits.get("cast") or [])[:limit]:
+        name = (person.get("name") or "").strip()
+        if not name:
+            continue
+        cast_out.append(
+            {
+                "name": name,
+                "character": (person.get("character") or "").strip() or None,
+                "profile_url": profile_url(person.get("profile_path")),
+            }
+        )
+    return cast_out
+
+
 def normalize_movie_details(details: Dict[str, Any]) -> Dict[str, Any]:
     credits = details.get("credits") or {}
     genre_names = [
@@ -139,6 +171,34 @@ def normalize_movie_details(details: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def parse_movie_page_extras(details: Dict[str, Any]) -> Dict[str, Any]:
+    """Rich TMDB payload for movie detail pages (cast, backdrop, runtime, etc.)."""
+    credits = details.get("credits") or {}
+    genre_names = [
+        (g.get("name") or "").strip()
+        for g in (details.get("genres") or [])
+        if (g.get("name") or "").strip()
+    ]
+    runtime = details.get("runtime")
+    runtime_minutes = int(runtime) if isinstance(runtime, int) and runtime > 0 else None
+    tagline = (details.get("tagline") or "").strip() or None
+    vote = details.get("vote_average")
+    vote_average = round(float(vote), 1) if vote is not None else None
+
+    return {
+        "synopsis": (details.get("overview") or "").strip(),
+        "tagline": tagline,
+        "runtime_minutes": runtime_minutes,
+        "genres": genre_names,
+        "director": extract_director(credits),
+        "cast": extract_cast(credits, limit=12),
+        "poster_path": details.get("poster_path"),
+        "backdrop_url": backdrop_url(details.get("backdrop_path")),
+        "vote_average": vote_average,
+        "release_date": details.get("release_date") or None,
+    }
+
+
 def popular_results(limit: int = 12) -> List[Dict[str, Any]]:
     data = popular_movies(page=1)
     return list(data.get("results") or [])[:limit]
@@ -147,6 +207,13 @@ def popular_results(limit: int = 12) -> List[Dict[str, Any]]:
 def search_results(query: str, limit: int = 8) -> List[Dict[str, Any]]:
     data = search_movies(query, page=1)
     return list(data.get("results") or [])[:limit]
+
+
+def year_from_release(release_date: Optional[str]) -> int:
+    release = release_date or ""
+    if len(release) >= 4 and release[:4].isdigit():
+        return int(release[:4])
+    return 0
 
 
 _GENRE_NAME_TO_ID: Dict[str, int] = {}

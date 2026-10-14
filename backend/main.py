@@ -603,6 +603,51 @@ def _genre_for_shelf(details: Dict[str, Any], shelf_genre: Optional[str]) -> str
     return shelf
 
 
+def import_movie_from_discover_item(
+    db: Session, item: Dict[str, Any], shelf_genre: Optional[str] = None
+) -> Optional[Movie]:
+    """Fast catalog import from search/discover JSON (no per-title credits call)."""
+    tmdb_id = item.get("id")
+    if not tmdb_id:
+        return None
+
+    tmdb_id = int(tmdb_id)
+    existing = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
+    title = (item.get("title") or "Untitled").strip()
+    year = tmdb_client.year_from_release(item.get("release_date")) or 2000
+    synopsis = (item.get("overview") or "No synopsis available on TMDB.").strip()
+    poster_path = item.get("poster_path")
+    genre_value = shelf_genre.strip() if shelf_genre and shelf_genre.strip() else "Film"
+
+    if existing:
+        if shelf_genre:
+            existing.genre = genre_value
+        if poster_path:
+            existing.poster_path = poster_path
+        if synopsis:
+            existing.synopsis = synopsis
+        if title:
+            existing.title = title
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    movie = Movie(
+        tmdb_id=tmdb_id,
+        title=title,
+        year=year,
+        director="Unknown",
+        genre=genre_value,
+        synopsis=synopsis,
+        poster_path=poster_path,
+        poster_accent="coral",
+    )
+    db.add(movie)
+    db.commit()
+    db.refresh(movie)
+    return movie
+
+
 def import_movie_from_tmdb(db: Session, tmdb_id: int, shelf_genre: Optional[str] = None) -> Movie:
     existing = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
     details = tmdb_client.normalize_movie_details(tmdb_client.get_movie(tmdb_id))
@@ -638,28 +683,26 @@ def sync_tmdb_search(db: Session, query: str, limit: int = 8) -> None:
         return
     try:
         for item in tmdb_client.search_results(query, limit=limit):
-            tmdb_id = item.get("id")
-            if tmdb_id:
-                import_movie_from_tmdb(db, int(tmdb_id))
+            import_movie_from_discover_item(db, item)
     except TMDBError:
         pass
 
 
 GENRE_CATALOG_TARGET = 48
-GENRE_SYNC_IMPORT_LIMIT = 72
+PER_REQUEST_GENRE_IMPORT = 20
+_GENRE_LAST_TOPUP: Dict[str, float] = {}
+_GENRE_TOPUP_COOLDOWN_SEC = 90
 
 
-def sync_tmdb_genre(db: Session, genre: str, limit: int = GENRE_SYNC_IMPORT_LIMIT) -> int:
-    """Import popular TMDB titles for a genre shelf. Returns count attempted."""
+def sync_tmdb_genre(db: Session, genre: str, limit: int = PER_REQUEST_GENRE_IMPORT) -> int:
+    """Import popular TMDB titles for a genre shelf (lightweight discover rows)."""
     if not tmdb_client.is_configured() or not genre.strip():
         return 0
     imported = 0
     try:
         shelf = genre.strip()
         for item in tmdb_client.discover_genre_results(shelf, limit=limit):
-            tmdb_id = item.get("id")
-            if tmdb_id:
-                import_movie_from_tmdb(db, int(tmdb_id), shelf_genre=shelf)
+            if import_movie_from_discover_item(db, item, shelf_genre=shelf):
                 imported += 1
     except TMDBError:
         pass
@@ -667,14 +710,22 @@ def sync_tmdb_genre(db: Session, genre: str, limit: int = GENRE_SYNC_IMPORT_LIMI
 
 
 def ensure_genre_catalog(db: Session, genre: str) -> None:
-    """Top up thin genre shelves so browse/compare never looks empty."""
+    """Top up thin genre shelves without blocking browse for minutes."""
     shelf = genre.strip()
     if not shelf or not tmdb_client.is_configured():
         return
     count = db.query(Movie).filter(Movie.genre.ilike(shelf)).count()
     if count >= GENRE_CATALOG_TARGET:
         return
-    sync_tmdb_genre(db, shelf, limit=GENRE_SYNC_IMPORT_LIMIT)
+
+    key = shelf.lower()
+    now = time()
+    if count > 0 and now - _GENRE_LAST_TOPUP.get(key, 0) < _GENRE_TOPUP_COOLDOWN_SEC:
+        return
+
+    need = GENRE_CATALOG_TARGET - count
+    sync_tmdb_genre(db, shelf, limit=min(need, PER_REQUEST_GENRE_IMPORT))
+    _GENRE_LAST_TOPUP[key] = now
 
 
 def seed_tmdb_popular(db: Session, limit: int = 12) -> None:
@@ -682,17 +733,87 @@ def seed_tmdb_popular(db: Session, limit: int = 12) -> None:
         return
     try:
         for item in tmdb_client.popular_results(limit=limit):
-            tmdb_id = item.get("id")
-            if tmdb_id:
-                import_movie_from_tmdb(db, int(tmdb_id))
+            import_movie_from_discover_item(db, item)
     except TMDBError:
         pass
 
 
-def movie_to_dict(movie: Movie, db: Session) -> Dict[str, Any]:
-    summary, _, source = movie_aspects_and_sentiment(movie, db)
-    if source == "tmdb":
-        summary = {k: v for k, v in summary.items() if k != "audience_source"}
+def attach_tmdb_page_details(db: Session, movie: Movie, payload: Dict[str, Any]) -> None:
+    payload["details"] = {
+        "tagline": None,
+        "runtime_minutes": None,
+        "genres": [movie.genre] if movie.genre else [],
+        "cast": [],
+        "backdrop_url": None,
+        "vote_average": None,
+        "release_date": None,
+    }
+    if not movie.tmdb_id or not tmdb_client.is_configured():
+        return
+
+    try:
+        raw = tmdb_client.get_movie(int(movie.tmdb_id))
+        extras = tmdb_client.parse_movie_page_extras(raw)
+    except TMDBError:
+        return
+
+    if extras.get("synopsis"):
+        movie.synopsis = extras["synopsis"]
+        payload["synopsis"] = extras["synopsis"]
+    if extras.get("poster_path"):
+        movie.poster_path = extras["poster_path"]
+        payload["poster_path"] = extras["poster_path"]
+        payload["poster_url"] = tmdb_poster_url(extras["poster_path"])
+    if extras.get("director"):
+        movie.director = extras["director"]
+        payload["director"] = extras["director"]
+
+    payload["details"] = {
+        "tagline": extras.get("tagline"),
+        "runtime_minutes": extras.get("runtime_minutes"),
+        "genres": extras.get("genres") or ([movie.genre] if movie.genre else []),
+        "cast": extras.get("cast") or [],
+        "backdrop_url": extras.get("backdrop_url"),
+        "vote_average": extras.get("vote_average"),
+        "release_date": extras.get("release_date"),
+    }
+    db.commit()
+
+
+def movie_list_sentiment(
+    movie: Movie, db: Session, prefetched_reviews: Optional[List[MovieReview]] = None
+) -> tuple[Dict[str, Any], str]:
+    """Fast path for browse/compare lists — never hits TMDB on a cache miss."""
+    reviews = (
+        prefetched_reviews
+        if prefetched_reviews is not None
+        else db.query(MovieReview).filter(MovieReview.movie_id == movie.id).all()
+    )
+    if reviews:
+        return summarize_movie_reviews(reviews), "criticlens"
+
+    cached = _TMDB_AUDIENCE_CACHE.get(movie.id)
+    if cached and time() - cached["ts"] < _TMDB_CACHE_TTL_SEC:
+        sentiment = dict(cached["data"]["sentiment"])
+        sentiment.pop("audience_source", None)
+        return sentiment, "tmdb"
+
+    return summarize_movie_reviews([]), "none"
+
+
+def movie_to_dict(
+    movie: Movie,
+    db: Session,
+    *,
+    for_list: bool = False,
+    prefetched_reviews: Optional[List[MovieReview]] = None,
+) -> Dict[str, Any]:
+    if for_list:
+        summary, source = movie_list_sentiment(movie, db, prefetched_reviews)
+    else:
+        summary, _, source = movie_aspects_and_sentiment(movie, db)
+        if source == "tmdb":
+            summary = {k: v for k, v in summary.items() if k != "audience_source"}
     return {
         "id": movie.id,
         "tmdb_id": movie.tmdb_id,
@@ -887,7 +1008,16 @@ def search_movies(
         genre_like = genre.strip()
         query = query.filter(Movie.genre.ilike(genre_like))
     movies = query.order_by(Movie.title.asc()).all()
-    return [movie_to_dict(movie, db) for movie in movies]
+    reviews_by_movie: Dict[int, List[MovieReview]] = defaultdict(list)
+    if movies:
+        movie_ids = [m.id for m in movies]
+        for review in db.query(MovieReview).filter(MovieReview.movie_id.in_(movie_ids)).all():
+            reviews_by_movie[review.movie_id].append(review)
+
+    return [
+        movie_to_dict(movie, db, for_list=True, prefetched_reviews=reviews_by_movie.get(movie.id, []))
+        for movie in movies
+    ]
 
 
 @app.get("/movies/compare")
@@ -956,6 +1086,7 @@ def get_movie(movie_id: int, db: Session = Depends(get_db)):
         payload["audience_feed"] = tmdb_pkg["reviews"] if tmdb_pkg else []
     else:
         payload["audience_feed"] = []
+    attach_tmdb_page_details(db, movie, payload)
     return payload
 
 

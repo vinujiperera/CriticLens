@@ -59,10 +59,27 @@ export type AudienceFeedReview = {
   source: string;
 };
 
+export type MovieCastMember = {
+  name: string;
+  character: string | null;
+  profile_url: string | null;
+};
+
+export type MoviePageDetails = {
+  tagline: string | null;
+  runtime_minutes: number | null;
+  genres: string[];
+  cast: MovieCastMember[];
+  backdrop_url: string | null;
+  vote_average: number | null;
+  release_date: string | null;
+};
+
 export type MovieDetail = MovieListItem & {
   reviews: MovieReview[];
   aspects: MovieAspectScores;
   audience_feed: AudienceFeedReview[];
+  details?: MoviePageDetails;
 };
 
 export type CommunityReview = {
