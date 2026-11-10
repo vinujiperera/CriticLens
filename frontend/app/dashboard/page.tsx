@@ -25,6 +25,7 @@ import {
   BarChart3,
   Download,
 } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 import { downloadReviewReportPdf } from "@/lib/pdfReports";
 
 interface AspectScores {
@@ -79,8 +80,6 @@ interface HistoryItem {
   confidence: number;
   timestamp?: string;
 }
-
-const API_BASE = "http://127.0.0.1:8000";
 
 const SAMPLE_REVIEWS = [
   {
@@ -175,6 +174,8 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [hoverToken, setHoverToken] = useState<TokenImpact | null>(null);
   const [pinnedToken, setPinnedToken] = useState<TokenImpact | null>(null);
+
+  
 
   const fetchHistory = useCallback(async () => {
     try {

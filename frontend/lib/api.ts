@@ -269,3 +269,67 @@ export async function compareMovies(ids: number[]) {
   if (!res.ok) throw new Error("Compare failed");
   return res.json() as Promise<CompareMovieRow[]>;
 }
+
+export type AiParsedIntent = {
+  genres?: string[];
+  people?: string[];
+  keywords?: string[];
+  year?: number | null;
+};
+
+export type AiMovieResult = {
+  id: number;
+  title: string;
+  overview: string;
+  poster_path?: string | null;
+  poster_url?: string | null;
+  release_date: string;
+  vote_average: number;
+};
+
+export type AiDiscoverResponse = {
+  query_parsed: AiParsedIntent;
+  results_count: number;
+  movies: AiMovieResult[];
+};
+
+export function resolveAiMoviePoster(movie: AiMovieResult): string | null {
+  if (movie.poster_url) return movie.poster_url;
+  if (movie.poster_path) {
+    const path = movie.poster_path.startsWith("/")
+      ? movie.poster_path
+      : `/${movie.poster_path}`;
+    return `https://image.tmdb.org/t/p/w500${path}`;
+  }
+  return null;
+}
+
+export async function fetchAiMovieDiscover(prompt: string): Promise<AiDiscoverResponse> {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return {
+      query_parsed: { genres: [], people: [], keywords: [], year: null },
+      results_count: 0,
+      movies: [],
+    };
+  }
+
+  const res = await apiFetch(`${API_BASE}/movies/ai-discover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: trimmed }),
+  });
+
+  if (!res?.ok) {
+    const err = await res?.json().catch(() => ({}));
+    const detail = err?.detail;
+    throw new Error(typeof detail === "string" ? detail : "AI search failed");
+  }
+
+  const data = (await res.json()) as Partial<AiDiscoverResponse>;
+  return {
+    query_parsed: data.query_parsed ?? { genres: [], people: [], keywords: [], year: null },
+    results_count: data.results_count ?? data.movies?.length ?? 0,
+    movies: Array.isArray(data.movies) ? data.movies : [],
+  };
+}
