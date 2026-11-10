@@ -275,6 +275,9 @@ export type AiParsedIntent = {
   people?: string[];
   keywords?: string[];
   year?: number | null;
+  mood?: string | null;
+  languages?: string[];
+  summary?: string | null;
 };
 
 export type AiMovieResult = {
@@ -285,6 +288,7 @@ export type AiMovieResult = {
   poster_url?: string | null;
   release_date: string;
   vote_average: number;
+  original_language?: string | null;
 };
 
 export type AiDiscoverResponse = {

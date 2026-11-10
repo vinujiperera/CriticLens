@@ -25,6 +25,7 @@ import {
   type CompareMovieRow,
   type MovieListItem,
 } from "@/lib/api";
+import { FadeInSection, StaggerItem, StaggerSections } from "../../components/PageSection";
 import { GenreFilter } from "../../components/GenreFilter";
 import { SentimentBreakdown, sentimentTextClass } from "../../components/SentimentBreakdown";
 
@@ -136,7 +137,7 @@ function CompareMoviesContent() {
 
   return (
     <main className="flex-1 px-4 py-8 md:px-8 max-w-6xl mx-auto w-full">
-      <div className="mb-8">
+      <FadeInSection className="mb-8">
         <h1 className="text-2xl font-bold text-sunrise-burgundy flex items-center gap-2">
           <BarChart3 className="w-6 h-6 text-sunrise-coral" />
           Compare audience sentiment
@@ -145,7 +146,7 @@ function CompareMoviesContent() {
           Search your catalog, pick 2–3 titles for an overlaid aspect radar, or up to 5 for side-by-side
           sentiment bars. TMDB-backed titles include auto-analyzed scores when local reviews are empty.
         </p>
-      </div>
+      </FadeInSection>
 
       <div className="relative max-w-xl mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sunrise-burgundy/40" />

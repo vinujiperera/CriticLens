@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { Loader2, RefreshCw, Search, Sparkles, Star } from "lucide-react";
 import {
@@ -15,6 +16,7 @@ import {
   type AiParsedIntent,
   type MovieListItem,
 } from "@/lib/api";
+import { FadeInSection, StaggerItem, StaggerSections } from "../components/PageSection";
 import { GenreFilter } from "../components/GenreFilter";
 import { MoviePoster } from "../components/MoviePoster";
 import { SentimentBreakdown, sentimentTextClass } from "../components/SentimentBreakdown";
@@ -113,12 +115,13 @@ export default function MoviesPage() {
 
   return (
     <main className="flex-1 px-4 py-8 md:px-8 max-w-6xl mx-auto w-full">
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+      <FadeInSection className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-sunrise-burgundy">Browse movies</h1>
           <p className="text-sm text-sunrise-burgundy/60 mt-1 max-w-2xl">
-            Posters and metadata powered by TMDB. Search to import titles into CriticLens, then read
-            and submit reviews with live sentiment scores.
+            Posters and metadata powered by TMDB. Search the catalog or use{" "}
+            <span className="font-medium text-sunrise-burgundy/80">AI discover</span> to describe your
+            mood, language, or ideal night—no need to list genres like a database query.
           </p>
         </div>
         {tmdbReady && (
@@ -132,7 +135,7 @@ export default function MoviesPage() {
             Load trending from TMDB
           </button>
         )}
-      </div>
+      </FadeInSection>
 
       {apiOnline === false && (
         <div className="mb-6 rounded-xl border border-sentiment-negative/30 bg-sentiment-negative/10 px-4 py-3 text-sm text-sunrise-burgundy">
@@ -158,7 +161,7 @@ export default function MoviesPage() {
         <button
           type="button"
           onClick={() => setDiscoverMode("catalog")}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition ${
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition-all duration-300 ${
             discoverMode === "catalog"
               ? "border-sunrise-coral/50 bg-sunrise-coral/10 text-sunrise-burgundy"
               : "border-sunrise-burgundy/15 bg-sunrise-surface text-sunrise-burgundy/65 hover:border-sunrise-coral/30"
@@ -170,7 +173,7 @@ export default function MoviesPage() {
         <button
           type="button"
           onClick={() => setDiscoverMode("ai")}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition ${
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition-all duration-300 ${
             discoverMode === "ai"
               ? "border-sunrise-coral/50 bg-sunrise-coral/10 text-sunrise-burgundy"
               : "border-sunrise-burgundy/15 bg-sunrise-surface text-sunrise-burgundy/65 hover:border-sunrise-coral/30"
@@ -181,49 +184,88 @@ export default function MoviesPage() {
         </button>
       </div>
 
-      <div className="relative max-w-xl mb-4 flex gap-2">
-        <div className="relative flex-1">
-          {discoverMode === "catalog" ? (
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sunrise-burgundy/40" />
-          ) : (
-            <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sunrise-coral/70" />
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={discoverMode}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          className={`relative mb-4 flex w-full gap-2 ${
+            discoverMode === "ai" ? "max-w-5xl flex-col sm:flex-row sm:items-stretch" : "max-w-xl"
+          }`}
+        >
+          <div className="relative min-w-0 flex-1">
+            {discoverMode === "catalog" ? (
+              <>
+                <Search className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 w-4 h-4 text-sunrise-burgundy/40" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search TMDB & your catalog…"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-sunrise-burgundy/15 bg-sunrise-surface text-sm focus:outline-none focus:ring-2 focus:ring-sunrise-coral/40 transition-shadow duration-300"
+                />
+              </>
+            ) : (
+              <>
+                <Sparkles className="pointer-events-none absolute left-3 top-3.5 z-10 w-4 h-4 text-sunrise-coral/70" />
+                <textarea
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  rows={3}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void handleAISearch(query);
+                    }
+                  }}
+                  placeholder="Describe how you feel, the vibe you want, language, or actors…"
+                  className="w-full min-h-[88px] resize-y pl-10 pr-4 py-3 rounded-xl border border-sunrise-burgundy/15 bg-sunrise-surface text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-sunrise-coral/40 transition-shadow duration-300"
+                />
+                <p className="mt-1.5 text-[11px] text-sunrise-burgundy/45 hidden sm:block">
+                  Press <kbd className="rounded bg-white/80 px-1 border border-sunrise-burgundy/15">Enter</kbd> to
+                  discover · <kbd className="rounded bg-white/80 px-1 border border-sunrise-burgundy/15">Shift+Enter</kbd>{" "}
+                  for a new line
+                </p>
+              </>
+            )}
+          </div>
+          {discoverMode === "ai" && (
+            <button
+              type="button"
+              disabled={loading || !query.trim()}
+              onClick={() => void handleAISearch(query)}
+              className="shrink-0 rounded-xl bg-sunrise-coral px-6 py-3 text-sm font-medium text-white hover:bg-[#e85f5b] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 transition-all duration-300 sm:self-start"
+            >
+              Discover
+            </button>
           )}
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (discoverMode === "ai" && e.key === "Enter") {
-                e.preventDefault();
-                void handleAISearch(query);
-              }
-            }}
-            placeholder={
-              discoverMode === "ai"
-                ? "Describe a film you want… e.g. sci-fi, time travel, Leonardo DiCaprio"
-                : "Search TMDB & your catalog…"
-            }
-            className="w-full pl-10 pr-4 py-3 rounded-xl border border-sunrise-burgundy/15 bg-sunrise-surface text-sm focus:outline-none focus:ring-2 focus:ring-sunrise-coral/40"
-          />
-        </div>
-        {discoverMode === "ai" && (
-          <button
-            type="button"
-            disabled={loading || !query.trim()}
-            onClick={() => void handleAISearch(query)}
-            className="shrink-0 rounded-xl bg-sunrise-coral px-4 py-3 text-sm font-medium text-white hover:bg-[#e85f5b] disabled:opacity-40 transition"
-          >
-            Discover
-          </button>
-        )}
-      </div>
+        </motion.div>
+      </AnimatePresence>
 
       {discoverMode === "ai" && aiError && (
-        <p className="mb-4 text-sm text-[#c47275] max-w-xl">{aiError}</p>
+        <p className="mb-4 text-sm text-[#c47275] max-w-5xl">{aiError}</p>
       )}
 
       {discoverMode === "ai" && parsedIntent && (
-        <div className="mb-6 flex flex-wrap gap-2 text-[11px] text-sunrise-burgundy/70">
+        <div className="mb-6 max-w-2xl">
+          {parsedIntent.summary && (
+            <p className="text-sm text-sunrise-burgundy/75 mb-3 leading-relaxed">
+              {parsedIntent.summary}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2 text-[11px] text-sunrise-burgundy/70">
+          {parsedIntent.mood && (
+            <span className="rounded-full border border-sunrise-coral/30 bg-sunrise-coral/10 px-2.5 py-1 font-medium">
+              Mood: {parsedIntent.mood}
+            </span>
+          )}
+          {parsedIntent.languages?.map((code) => (
+            <span key={`lang-${code}`} className="rounded-full border border-sunrise-burgundy/15 bg-white/60 px-2.5 py-1">
+              Language: {code.toUpperCase()}
+            </span>
+          ))}
           {parsedIntent.genres?.map((g) => (
             <span key={`g-${g}`} className="rounded-full border border-sunrise-burgundy/15 bg-white/60 px-2.5 py-1">
               Genre: {g}
@@ -244,6 +286,7 @@ export default function MoviesPage() {
               Year: {parsedIntent.year}
             </span>
           )}
+          </div>
         </div>
       )}
 
@@ -326,12 +369,12 @@ export default function MoviesPage() {
               }`}
         </p>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <StaggerSections className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {movies.map((movie) => (
+            <StaggerItem key={movie.id}>
             <Link
-              key={movie.id}
               href={`/movies/${movie.id}`}
-              className="group rounded-2xl border border-sunrise-burgundy/12 bg-sunrise-surface overflow-hidden shadow-md hover:shadow-lg hover:border-sunrise-coral/30 transition"
+              className="group block h-full rounded-2xl border border-sunrise-burgundy/12 bg-sunrise-surface overflow-hidden shadow-md hover:shadow-lg hover:border-sunrise-coral/30 transition-all duration-300 hover:-translate-y-0.5"
             >
               <MoviePoster
                 posterUrl={movie.poster_url}
@@ -368,8 +411,9 @@ export default function MoviesPage() {
                 )}
               </div>
             </Link>
+            </StaggerItem>
           ))}
-        </div>
+        </StaggerSections>
       )}
     </main>
   );

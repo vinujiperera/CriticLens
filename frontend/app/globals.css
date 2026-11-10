@@ -114,7 +114,7 @@ body {
     transform: rotate(-11deg) scale(1.02);
   }
   100% {
-    opacity: 0.9;
+    opacity: 1;
     transform: rotate(-9deg) scale(1);
   }
 }
@@ -122,12 +122,10 @@ body {
 @keyframes home-poster-shimmer {
   0%,
   100% {
-    filter: brightness(1) saturate(1.05);
-    opacity: 0.94;
+    filter: brightness(1.02) saturate(1.05);
   }
   50% {
-    filter: brightness(1.18) saturate(1.15);
-    opacity: 1;
+    filter: brightness(1.08) saturate(1.1);
   }
 }
 
@@ -183,27 +181,27 @@ body {
 
 .home-aurora {
   background-image:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgb(242 108 104 / 0.22), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 80% 70%, rgb(229 152 155 / 0.28), transparent 50%),
-    radial-gradient(ellipse 60% 40% at 50% 50%, rgb(255 228 220 / 0.5), transparent 60%);
+    radial-gradient(ellipse 80% 60% at 20% 30%, rgb(242 108 104 / 0.28), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 80% 70%, rgb(229 152 155 / 0.25), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 50%, rgb(255 228 220 / 0.3), transparent 60%);
   background-size: 120% 120%, 130% 130%, 100% 100%;
   animation: home-aurora-drift 14s ease-in-out infinite;
 }
 
-.home-gradient-text {
-  background: linear-gradient(
-    100deg,
-    #f26c68 0%,
-    #e85f5b 25%,
-    #e5989b 50%,
-    #f26c68 75%,
-    #ff8a85 100%
-  );
-  background-size: 220% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: home-gradient-flow 5s ease infinite;
+.home-tagline {
+  display: block;
+  position: relative;
+  padding-bottom: 0.35rem;
+}
+
+.home-tagline::after {
+  content: "";
+  display: block;
+  width: 3.25rem;
+  height: 3px;
+  margin: 0.65rem auto 0;
+  border-radius: 2px;
+  background: var(--sunrise-coral);
 }
 
 .home-subline-shimmer {
@@ -256,6 +254,7 @@ body {
 
 .home-poster-wall {
   animation: home-poster-wall-in 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  filter: saturate(1.08) contrast(1.02);
 }
 
 .home-marquee-track {
@@ -291,7 +290,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .home-page-shell,
   .home-aurora,
-  .home-gradient-text,
   .home-subline-shimmer,
   .home-cta-glow,
   .home-badge-shimmer,
@@ -307,7 +305,7 @@ body {
   }
 
   .home-poster-wall {
-    opacity: 0.9;
+    opacity: 1;
     transform: rotate(-9deg) scale(1);
   }
 }

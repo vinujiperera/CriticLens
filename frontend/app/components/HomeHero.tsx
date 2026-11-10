@@ -41,7 +41,7 @@ function AnimatedWords({
   if (reduceMotion) {
     return (
       <span className={className}>
-        {gradient ? <span className="home-gradient-text">{text}</span> : text}
+        {gradient ? <span>{text}</span> : text}
       </span>
     );
   }
@@ -53,7 +53,7 @@ function AnimatedWords({
           {word.split("").map((char, ci) => (
             <motion.span
               key={`${wi}-${ci}`}
-              className={`inline-block ${gradient ? "home-gradient-text" : ""}`}
+              className="inline-block"
               initial={{ opacity: 0, y: 28, rotateX: 40 }}
               animate={{ opacity: 1, y: 0, rotateX: 0 }}
               transition={{
@@ -91,7 +91,7 @@ export function HomeHero() {
       <div className="relative z-10 w-full max-w-4xl mx-auto text-center space-y-6 sm:space-y-8">
         <motion.p
           {...fadeUp(0.1, !!reduceMotion)}
-          className="home-badge-shimmer inline-flex items-center gap-2 rounded-full border border-sunrise-burgundy/15 bg-white/80 px-3 py-1 text-xs font-medium text-sunrise-burgundy/80 shadow-sm backdrop-blur-sm"
+          className="home-badge-shimmer inline-flex items-center gap-2 rounded-full border border-sunrise-coral/35 bg-white/95 px-4 py-1.5 text-xs font-semibold text-sunrise-burgundy shadow-md shadow-sunrise-coral/15 backdrop-blur-sm"
         >
           <motion.span
             animate={reduceMotion ? undefined : { rotate: [0, 12, -8, 0], scale: [1, 1.15, 1] }}
@@ -105,18 +105,19 @@ export function HomeHero() {
 
         <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight leading-[1.12] text-sunrise-burgundy perspective-[800px]">
           <AnimatedWords text="Critique intelligence" wordDelay={0.07} letterDelay={0.022} />
-          <br />
-          <AnimatedWords
-            text="for every moment"
-            wordDelay={0.09}
-            letterDelay={0.028}
-            gradient
-          />
+          <span className="home-tagline mt-2 sm:mt-3 block text-[#c93d38]">
+            <AnimatedWords
+              text="in every critique"
+              wordDelay={0.09}
+              letterDelay={0.028}
+              gradient
+            />
+          </span>
         </h1>
 
         <motion.p
           {...fadeUp(0.85, !!reduceMotion)}
-          className="text-lg sm:text-xl text-sunrise-burgundy/85 max-w-2xl mx-auto font-medium"
+          className="text-xl sm:text-2xl text-sunrise-burgundy max-w-2xl mx-auto font-bold tracking-tight"
         >
           <span className="home-subline-shimmer">Explore reviews.</span>{" "}
           <span className="home-subline-shimmer home-subline-shimmer-delay">
@@ -126,7 +127,7 @@ export function HomeHero() {
 
         <motion.p
           {...fadeUp(1.05, !!reduceMotion)}
-          className="text-sm sm:text-base text-sunrise-burgundy/65 max-w-xl mx-auto"
+          className="text-sm sm:text-base text-sunrise-burgundy/90 max-w-xl mx-auto font-medium leading-relaxed"
         >
           Ready to analyze? Jump into the lab—paste a critique and get sentiment breakdowns in
           seconds.
@@ -135,7 +136,7 @@ export function HomeHero() {
         <motion.div {...fadeUp(1.25, !!reduceMotion)} className="flex justify-center pt-2">
           <Link
             href="/dashboard"
-            className="home-cta-glow group inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sunrise-coral to-[#e85f5b] px-10 py-3.5 text-base font-semibold text-white shadow-lg shadow-sunrise-coral/25 transition-transform hover:scale-[1.03] active:scale-[0.98]"
+            className="home-cta-glow group inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f04a45] via-sunrise-coral to-[#e83832] px-10 py-3.5 text-base font-bold text-white shadow-xl shadow-sunrise-coral/40 transition-transform hover:scale-[1.03] active:scale-[0.98]"
           >
             Get started
             <motion.span
@@ -176,7 +177,7 @@ export function HomeHero() {
                   }
             }
             whileHover={reduceMotion ? undefined : { y: -6, scale: 1.02 }}
-            className="home-feature-card rounded-xl border border-sunrise-burgundy/10 bg-white/75 backdrop-blur-sm p-5 text-left shadow-sm"
+            className="home-feature-card rounded-xl border border-sunrise-coral/25 bg-white/95 backdrop-blur-md p-5 text-left shadow-lg shadow-sunrise-burgundy/10"
           >
             <motion.div
               animate={
@@ -191,10 +192,10 @@ export function HomeHero() {
                 delay: index * 0.3,
               }}
             >
-              <item.icon className="h-5 w-5 text-sunrise-coral mb-3" />
+              <item.icon className="h-6 w-6 text-[#e83832] mb-3" />
             </motion.div>
-            <h2 className="text-sm font-semibold text-sunrise-burgundy">{item.title}</h2>
-            <p className="text-xs text-sunrise-burgundy/60 mt-1 leading-relaxed">{item.desc}</p>
+            <h2 className="text-base font-bold text-sunrise-burgundy">{item.title}</h2>
+            <p className="text-sm text-sunrise-burgundy/80 mt-1.5 leading-relaxed font-medium">{item.desc}</p>
           </motion.div>
         ))}
       </motion.div>

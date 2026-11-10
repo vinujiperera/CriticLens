@@ -26,6 +26,7 @@ import {
   Download,
 } from "lucide-react";
 import { API_BASE } from "@/lib/api";
+import { FadeInSection, StaggerItem, StaggerSections } from "../components/PageSection";
 import { downloadReviewReportPdf } from "@/lib/pdfReports";
 
 interface AspectScores {
@@ -267,7 +268,7 @@ export default function Home() {
 
   return (
     <main className="flex-1 px-4 py-8 md:px-8 md:py-10">
-      <div className="max-w-6xl mx-auto mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-sunrise-burgundy/15 pb-6">
+      <FadeInSection className="max-w-6xl mx-auto mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-sunrise-burgundy/15 pb-6">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-sunrise-burgundy flex items-center gap-2">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-sunrise-coral text-white shadow-md">
@@ -296,10 +297,10 @@ export default function Home() {
             </button>
           ))}
         </div>
-      </div>
+      </FadeInSection>
 
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-7 flex flex-col gap-6">
+      <StaggerSections className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <StaggerItem className="lg:col-span-7 flex flex-col gap-6">
           <div
             id="analyze"
             className="scroll-mt-24 bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg space-y-3"
@@ -482,9 +483,9 @@ export default function Home() {
               </div>
             )}
           </div>
-        </div>
+        </StaggerItem>
 
-        <div className="lg:col-span-5 flex flex-col gap-6">
+        <StaggerItem className="lg:col-span-5 flex flex-col gap-6">
           {result ? (
             <>
               <div className="bg-sunrise-surface/95 border border-sunrise-burgundy/12 rounded-2xl p-5 shadow-lg">
@@ -703,8 +704,8 @@ export default function Home() {
               </p>
             </div>
           )}
-        </div>
-      </div>
+        </StaggerItem>
+      </StaggerSections>
     </main>
   );
 }
