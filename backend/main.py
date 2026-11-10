@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
+from ai_recommender import discover_movies_with_ai
 import joblib
 import os
 import re
@@ -1283,3 +1284,19 @@ def delete_history_item(record_id: int, db: Session = Depends(get_db)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
+
+
+class AISearchRequest(BaseModel):
+    prompt: str
+
+@app.post("/movies/ai-discover")
+async def ai_discover(payload: AISearchRequest):
+    prompt = payload.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+    try:
+        data = await discover_movies_with_ai(prompt)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Search error: {str(e)}")
