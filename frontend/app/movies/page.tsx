@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, Search, Star } from "lucide-react";
 import {
+  checkApiOnline,
   fetchMovieGenres,
   fetchMovies,
   fetchTmdbStatus,
@@ -24,6 +25,7 @@ export default function MoviesPage() {
   const [tmdbReady, setTmdbReady] = useState<boolean | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [apiOnline, setApiOnline] = useState<boolean | null>(null);
 
   const loadMovies = useCallback(async (search?: string, genreFilter?: string | null) => {
     setLoading(true);
@@ -38,10 +40,19 @@ export default function MoviesPage() {
   }, []);
 
   useEffect(() => {
-    fetchTmdbStatus().then((s) => setTmdbReady(s.configured));
-    fetchMovieGenres()
-      .then((data) => setGenres(data.genres))
-      .finally(() => setGenresLoading(false));
+    void (async () => {
+      const online = await checkApiOnline();
+      setApiOnline(online);
+      if (online) {
+        const [status, genreData] = await Promise.all([fetchTmdbStatus(), fetchMovieGenres()]);
+        setTmdbReady(status.configured);
+        setGenres(genreData.genres);
+      } else {
+        setTmdbReady(false);
+        setGenres([]);
+      }
+      setGenresLoading(false);
+    })();
   }, []);
 
   useEffect(() => {
@@ -87,7 +98,16 @@ export default function MoviesPage() {
         )}
       </div>
 
-      {tmdbReady === false && (
+      {apiOnline === false && (
+        <div className="mb-6 rounded-xl border border-sentiment-negative/30 bg-sentiment-negative/10 px-4 py-3 text-sm text-sunrise-burgundy">
+          Cannot reach the API at <code className="text-xs bg-white/50 px-1 rounded">127.0.0.1:8000</code>.
+          In a second terminal, activate <code className="text-xs bg-white/50 px-1 rounded">.venv</code>, run{" "}
+          <code className="text-xs bg-white/50 px-1 rounded">cd backend</code> then{" "}
+          <code className="text-xs bg-white/50 px-1 rounded">uvicorn main:app --reload --port 8000</code>.
+        </div>
+      )}
+
+      {apiOnline && tmdbReady === false && (
         <div className="mb-6 rounded-xl border border-sunrise-coral-muted/40 bg-sunrise-peach/40 px-4 py-3 text-sm text-sunrise-burgundy">
           TMDB is not configured. Add <code className="text-xs bg-white/50 px-1 rounded">TMDB_API_KEY</code>{" "}
           to <code className="text-xs bg-white/50 px-1 rounded">backend/.env</code> and restart FastAPI.

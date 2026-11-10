@@ -1,4 +1,13 @@
-export const API_BASE = "http://127.0.0.1:8000";
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8000";
+
+async function apiFetch(input: string, init?: RequestInit): Promise<Response | null> {
+  try {
+    return await fetch(input, { ...init, cache: "no-store" });
+  } catch {
+    return null;
+  }
+}
 
 export type MovieSentimentSummary = {
   review_count: number;
@@ -107,9 +116,14 @@ export type SentimentTrendPoint = {
 };
 
 export async function fetchTmdbStatus(): Promise<{ configured: boolean }> {
-  const res = await fetch(`${API_BASE}/tmdb/status`, { cache: "no-store" });
-  if (!res.ok) return { configured: false };
+  const res = await apiFetch(`${API_BASE}/tmdb/status`);
+  if (!res?.ok) return { configured: false };
   return res.json();
+}
+
+export async function checkApiOnline(): Promise<boolean> {
+  const res = await apiFetch(`${API_BASE}/tmdb/status`);
+  return res?.ok ?? false;
 }
 
 export async function syncPopularMovies(): Promise<{ tmdb_movies_in_catalog: number }> {
@@ -127,8 +141,8 @@ export type MovieBrowseFilters = {
 };
 
 export async function fetchMovieGenres(): Promise<{ genres: string[]; in_catalog: string[] }> {
-  const res = await fetch(`${API_BASE}/movies/genres`, { cache: "no-store" });
-  if (!res.ok) return { genres: [], in_catalog: [] };
+  const res = await apiFetch(`${API_BASE}/movies/genres`);
+  if (!res?.ok) return { genres: [], in_catalog: [] };
   return res.json();
 }
 
@@ -138,8 +152,8 @@ export async function fetchMovies(filters?: MovieBrowseFilters): Promise<MovieLi
   if (filters?.genre?.trim()) params.set("genre", filters.genre.trim());
   const qs = params.toString();
   const url = qs ? `${API_BASE}/movies?${qs}` : `${API_BASE}/movies`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load movies");
+  const res = await apiFetch(url);
+  if (!res?.ok) return [];
   return res.json();
 }
 
